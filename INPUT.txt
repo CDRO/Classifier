@@ -1,0 +1,112 @@
+Building a budget-friendly, local-first document processing pipeline with an AI-assisted UI hosted on your Synology NAS is entirely achievable. The key to staying within budget while keeping the system responsive is to separate **lightweight local execution** (UI, PDF processing, splitting) from **cheap cloud AI micro-services** (vision/text classification).
+
+---
+
+## 1. System Architecture & Tech Stack
+
+```
+[ Local Scanner ] 
+       │ (Uploads Multi-page PDF)
+       ▼
+[ Synology DS923+ (Docker Container) ]
+  ├── Frontend: React / Next.js
+  ├── Backend: FastAPI (Python) + PyMuPDF
+  └── Local OCR/Features: Tesseract OCR or Fast Embeddings
+       │
+       ├─► [ Vision API / LLM (Gemini 1.5 Flash / Claude 3 Haiku) ] 
+       │     └─► Returns: Page Split Suggestions + Document Category
+       │
+       ▼
+[ User Web UI Review ]
+  ├── Adjust Page Rotations
+  ├── Fix Split Boundaries
+  └── Confirm/Override Metadata & File Names
+       │
+       ▼
+[ Final Storage Options ]
+  ├── Archive Original PDFs (Local / Cloud Storage)
+  ├── Processed Split PDFs ──► Local Folder / Synology Drive
+  └─► Optional Export ───► Google Drive / SharePoint APIs
+
+```
+
+---
+
+## 2. Choosing the Best AI Tools (Budget-Friendly AIaaS)
+
+Since you want to avoid hosting local GPUs (which the AMD Ryzen R1600 CPU in your DS923+ cannot handle for modern LLMs), cloud APIs via **pay-per-use AIaaS** are the most cost-effective path.
+
+### A. Document Splitting & Layout Detection
+
+To detect where a 50-page batch scan should be split, you don't need expensive visual transformer models for every page.
+
+* **Hybrid Approach (Lowest Cost):**
+1. **Rule-based pre-filtering (Local on NAS):** Use Python (`PyMuPDF`) to extract visual features locally—e.g., detecting blank pages or reading top-of-page headers via Tesseract OCR to flag potential "document start" boundaries.
+2. **API Fallback / Multi-modal verification:** For pages flagged as boundary candidates, send page snapshots (rendered as JPEGs) to a vision model.
+
+
+* **Recommended API:** **Google Gemini 1.5 Flash** or **Anthropic Claude 3 Haiku**.
+* *Why:* They support vision, have massive context windows, and cost fraction-of-a-cent per request (e.g., Gemini 1.5 Flash costs roughly **$0.00002 to $0.0001 per page image**). Processing thousands of pages will cost only a few dollars per month.
+
+
+
+### B. Document Classification & Metadata Extraction
+
+* **Best API:** **Gemini 1.5 Flash** or **OpenAI gpt-4o-mini**.
+* **Strategy:** Extract text locally using PyMuPDF (if vector PDF) or local Tesseract OCR (if pure scanned image). Send the raw text with a structured output prompt (using JSON Schema/Function Calling) to the LLM.
+* Prompt Example JSON return:
+```json
+{
+  "document_type": "Invoice",
+  "vendor": "Acme Corp",
+  "suggested_filename": "2026-08-17_Invoice_AcmeCorp.pdf"
+}
+
+```
+
+
+
+
+
+---
+
+## 3. Best AI Code Generator to Build the App
+
+To write the code for this application yourself:
+
+1. **Cursor / VS Code + Claude 3.5 Sonnet:** Cursor or GitHub Copilot using **Claude 3.5 Sonnet** as the underlying LLM is currently top-tier for full-stack web generation (React + Python/FastAPI). It handles canvas rendering, PDF manipulation logic, and API wiring smoothly.
+2. **v0.dev (by Vercel):** Ideal for rapidly generating the **React UI** frontend. You can describe: *"A split-screen PDF document classifier with a sidebar showing page thumbnails, split-point toggles, rotation controls, and metadata form fields."*
+
+---
+
+## 4. Hosting, File Storage, & Final Destination
+
+### A. Web Application Hosting
+
+* **Platform:** Host on your **Synology DS923+ via Docker (Container Manager)**.
+* **Architecture:** Wrap the FastAPI backend and React frontend into a `docker-compose.yml` file.
+* **NAS Resource Note:** The AMD Ryzen R1600 CPU and base 4GB RAM on the DS923+ are more than enough to run FastAPI, NodeJS/React, and PyMuPDF. Upgrading the RAM to 8GB or 16GB is recommended if running Tesseract OCR heavily on the NAS CPU.
+
+### B. Original File Archiving & Output Storage
+
+To preserve original scans while exporting split documents:
+
+* **Originals Preservation:** When a scan arrives, write it immediately to an immutable **` /volume1/Archive/Originals_RAW/`** folder on your Synology NAS with a timestamp ID.
+* **Destination Options:**
+1. **Local NAS (Recommended First Step):** Save split, rotated, and renamed PDFs directly into folder structures on your Synology NAS (e.g., `/volume1/Documents/Invoices/2026/`).
+2. **SharePoint / Microsoft 365:** Use the official `@microsoft/microsoft-graph-client` SDK in your backend to auto-upload finalized files to SharePoint document libraries.
+3. **Google Drive:** Use `google-api-python-client` with a Service Account to write files to Google Drive folders.
+
+
+
+---
+
+## 5. Web Interface Key Requirements (Workflow Summary)
+
+To meet your requirements, the web UI should provide:
+
+* **Visual Grid / Filmstrip View:** Render thumbnail views of every page in the uploaded batch scan.
+* **Page Rotation Controls:** Quick `90° Left` / `90° Right` buttons per page thumbnail (handled client-side using `pdf-lib` or server-side via `PyMuPDF`).
+* **Interactive Split Points:** Visual scissors/divider icons between page thumbnails. The AI pre-selects split points, but clicking a divider toggles a split on/off.
+* **Batch Grouping & Naming:** Split sections grouped into collapsible containers in the UI. Each group displays the AI-suggested category, vendor/name, and output filename with fields for manual overrides.
+* **One-Click Finalize:** Clicking "Finalize" triggers the backend to slice the original PDF using Python `pypdf`/`PyMuPDF`, apply rotation tags, rename the output files, and save/export them while preserving the original raw scan intact.
