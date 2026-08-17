@@ -1183,6 +1183,131 @@ echo "Rollback to $PREV_VERSION complete!"
 
 ---
 
+## 12. Code Review & PR Approval Process
+
+### 12.1 GitHub Workflow Mandate
+
+**All work requires:**
+1. GitHub Issue describing the work
+2. GitHub Milestone (e.g., "v1.3.0", "Q3-2026 Batch")
+3. GitHub PR linked to both Issue and Milestone
+4. 10-cycle code review process (see section 12.2)
+5. All approval criteria met (see section 12.3)
+
+**Why this matters for QA:**
+- Full traceability: Every test change traced to Issue → Milestone → PR → Review cycles
+- Quality gates: 10 cycles ensure bugs are caught before merge
+- Documentation: All decisions recorded in PR comments
+- Accountability: Each reviewer comment gets a corresponding fix commit
+
+### 12.2 The 10-Cycle Review Process
+
+**Exactly 10 review cycles, each cycle consists of:**
+
+1. **Reviewer Subagent posts Comment** (identifying issues):
+   - Correctness problems (logic errors, boundary bugs)
+   - Linting violations (PEP 8, formatting)
+   - Bounds checking (values properly clamped?)
+   - Type safety (correct types? implicit conversions?)
+   - Test coverage (edge cases covered? adequate coverage?)
+   - Code clarity (clear variable names? explanatory comments?)
+   - Performance concerns (inefficiencies? memory leaks?)
+
+2. **Fixer Subagent commits Fix** (addressing the comment):
+   - One commit per review comment
+   - Commit message: `fix(cycle-N): address review comment #N - [brief description]`
+   - Push to feature branch (PR auto-updates)
+   - Wait for next review cycle
+
+**After Cycle 10:**
+- Code is merged if all quality criteria met (section 12.3)
+- Fixed number prevents endless iteration
+- CAVEMAN principle: "Nudge" - incremental improvements compound
+
+### 12.3 PR Approval Criteria (Mandatory for Merge)
+
+**Code Quality (Automated Checks):**
+- ✅ All tests pass (unit, integration, fuzzing)
+- ✅ Code coverage doesn't decrease (≥85% minimum)
+- ✅ No new linter warnings (flake8 clean)
+- ✅ Type checking passes (mypy --strict)
+- ✅ Security scan passes (bandit clean)
+- ✅ CI/CD pipeline green (all automated checks)
+
+**Code Review (Manual Checks via 10-Cycle Process):**
+- ✅ Correctness: No logic errors, boundary bugs, or edge case issues
+- ✅ Linting: PEP 8 compliant, consistent formatting
+- ✅ Bounds checking: All values properly validated/clamped
+- ✅ Type safety: Correct types throughout, no implicit conversions
+- ✅ Test coverage: Edge cases tested, coverage adequate (≥85%)
+- ✅ Code clarity: Variable names descriptive, comments explain "why"
+- ✅ Performance: No obvious inefficiencies or memory leaks
+
+**Documentation:**
+- ✅ Inline code comments for complex logic
+- ✅ External docs updated (if architecture/behavior changed)
+- ✅ Commit messages clear & referential
+- ✅ CHANGELOG.md entry added
+- ✅ PR description complete and clear
+
+**Alignment:**
+- ✅ Changes align with CAVEMAN principles
+- ✅ Performance impact documented (if any)
+- ✅ No unresolved review comments
+- ✅ No breaking changes without deprecation period
+
+### 12.4 Example: Cycle 1 Review Comment
+
+**Reviewer Subagent Posts:**
+```markdown
+### Cycle 1 Review Comment
+**File:** tests/unit/test_pdf_processor.py
+**Line:** 87
+
+**Issue:** Test `test_extract_page_count_corrupted_pdf` doesn't validate the error message. 
+Multiple error types could be raised; test only checks exception type.
+
+**Why:** If the error handling changes unexpectedly, this test won't catch it. 
+Weakens regression coverage.
+
+**Suggested Fix:**
+```python
+def test_extract_page_count_corrupted_pdf(self, processor, tmp_path):
+    corrupted_pdf = tmp_path / "corrupted.pdf"
+    corrupted_pdf.write_bytes(b"not a pdf")
+    
+    with pytest.raises(PDFExtractionError) as exc_info:
+        processor.get_page_count(corrupted_pdf)
+    
+    # Validate specific error message
+    assert "PDF signature not found" in str(exc_info.value)
+    assert str(corrupted_pdf) in str(exc_info.value)  # Include path in error
+```
+```
+
+**Fixer Subagent Commits:**
+```bash
+git add tests/unit/test_pdf_processor.py
+git commit -m "fix(cycle-1): add error message validation to corrupted PDF test"
+git push origin feature/pdf-processor-tests
+```
+
+### 12.5 Preventing Common Review Issues
+
+**To pass the 10-cycle review, avoid:**
+
+| Issue | Impact | Fix |
+|-------|--------|-----|
+| Hardcoded values in tests | Brittle, fails on data changes | Use fixtures, parameterization |
+| Missing docstrings | Unclear test purpose | Add docstring explaining what & why |
+| Loose assertions (`assert x`) | Doesn't validate behavior | Use specific assertions (`assert x == 42`) |
+| No edge case tests | Gaps in coverage | Test boundaries, nulls, empty inputs |
+| Implicit type conversions | Silent bugs | Use type hints, explicit conversions |
+| Global test state | Tests interfere with each other | Use fixtures, isolation per test |
+| Slow tests (>5s each) | CI takes forever | Mock external APIs, use in-memory fixtures |
+
+---
+
 ## Appendix A: Test Execution Checklist
 
 - [ ] Unit tests pass (Python 3.9+)
@@ -1194,6 +1319,8 @@ echo "Rollback to $PREV_VERSION complete!"
 - [ ] Performance benchmarks acceptable
 - [ ] No new warnings in logs
 - [ ] Sentry error rate normal
+- [ ] 10-cycle code review completed
+- [ ] All PR approval criteria met (section 12.3)
 - [ ] Ready for deployment
 
 ---

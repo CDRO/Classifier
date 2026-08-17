@@ -109,6 +109,14 @@ All AI agents working on this project **MUST**:
    - Discuss trade-offs explicitly
    - Involve stakeholders early
 
+7. ✅ **GitHub Workflow is MANDATORY for ALL work**:
+   - Create GitHub milestone for the feature/bug/task
+   - Create GitHub PR linked to milestone before ANY code changes
+   - ALL work (features, bugs, docs, refactoring) REQUIRES PR + milestone
+   - PR must remain open for full 10-cycle review process
+   - NO code is merged to `main` without completing all 10 review cycles
+   - Branch protection rules enforce this (CI + reviewer approval mandatory)
+
 ### 1.2 Prohibited Actions
 
 AI agents **MUST NOT**:
@@ -117,7 +125,9 @@ AI agents **MUST NOT**:
 - ❌ Introduce new configuration options beyond those in `.env`
 - ❌ Skip or minimize testing ("we'll test it later" never happens)
 - ❌ Over-generalize code ("this might be useful for X in the future")
-- ❌ Commit directly to `main` branch; all changes via PR
+- ❌ Commit directly to `main` branch; ALL work must have GitHub milestone + PR
+- ❌ Merge PR without completing 10-cycle code review process
+- ❌ Create PR without linking to GitHub milestone
 - ❌ Ignore warnings from linters, type checkers, or security scanners
 - ❌ Change behavior without updating corresponding tests
 - ❌ Introduce breaking API changes without deprecation period
@@ -156,21 +166,45 @@ AI agents **MUST NOT**:
 
 ## 2. Task Execution Guidelines
 
+### 2.0 GitHub Workflow Mandate (BEFORE Starting Any Task)
+
+**CRITICAL:** All work follows this GitHub workflow:
+
+```
+1. Create GitHub Issue describing the work
+2. Create GitHub Milestone (e.g., "v1.3.0" or "Q3-2026 Batch")
+3. Link Issue to Milestone
+4. Create GitHub PR with title: "feat|fix|docs|refactor: short description"
+5. Link PR to Issue ("Closes #123") and Milestone
+6. Proceed to implementation (see section 2.2)
+7. After all code committed → Begin 10-Cycle Code Review (section 2.4)
+8. After 10 cycles complete → Merge to main (with all CI passing)
+```
+
+**Why?**
+- Traceability: Every line of code traced to Issue → Milestone → PR → Review cycles
+- Quality: 10-cycle review catches bugs, linting, logic errors before merge
+- Agility: Continuous feedback loop accelerates learning & improvement
+- CAVEMAN alignment: Minimal bureaucracy, maximum clarity
+
 ### 2.1 Before Starting Any Task
 
 **Checklist:**
 
 1. [ ] Read this AGENTS.md fully
-2. [ ] Review relevant spec section(s)
-3. [ ] Check for existing implementation (don't duplicate)
-4. [ ] Identify dependencies (external APIs, libraries, other modules)
-5. [ ] Draft minimal test cases
-6. [ ] Estimate effort (if >1 day, break into smaller tasks)
-7. [ ] Seek approval if scope is unclear
+2. [ ] Create GitHub Issue (if none exists)
+3. [ ] Create GitHub Milestone
+4. [ ] Create GitHub PR linked to Issue + Milestone
+5. [ ] Review relevant spec section(s)
+6. [ ] Check for existing implementation (don't duplicate)
+7. [ ] Identify dependencies (external APIs, libraries, other modules)
+8. [ ] Draft minimal test cases
+9. [ ] Estimate effort (if >1 day, break into smaller tasks)
+10. [ ] Seek approval if scope is unclear
 
 ### 2.2 During Implementation
 
-**Workflow:**
+**Workflow (assumes PR already created per section 2.0):**
 
 ```
 1. Create feature branch: git checkout -b feature/short-description
@@ -179,13 +213,148 @@ AI agents **MUST NOT**:
 4. Run linters, type checkers, security scanners
 5. Get all tests passing (unit + integration)
 6. Write/update inline documentation
-7. Create PR with clear description referencing spec
-8. Address review feedback iteratively
-9. Merge when approved & all CI checks pass
+7. Push all commits to feature branch (PR auto-updates)
+8. PR is now ready for 10-cycle review (section 2.4)
+9. After 10 cycles complete, merge when approved & CI passes
 10. Update CHANGELOG.md and relevant docs
 ```
 
-### 2.3 Code Review Criteria
+### 2.3 PR Description Template
+
+Every PR MUST include this description (auto-linked to issue):
+
+```markdown
+## Linked Issue
+Closes #123 (GitHub will auto-link)
+
+## Milestone
+Milestone: v1.3.0 (must be selected in PR)
+
+## Description
+Brief summary of what this PR does.
+
+## Type of Change
+- [ ] Feature
+- [ ] Bug fix
+- [ ] Documentation
+- [ ] Refactoring
+- [ ] Performance improvement
+
+## Testing
+- [ ] Unit tests added/updated
+- [ ] Integration tests added/updated
+- [ ] Manual testing performed
+
+## Review Process
+This PR will undergo 10-cycle code review per AGENTS.md section 2.4.
+Each cycle: Reviewer subagent comments → Fixer subagent commits fix.
+```
+
+### 2.4 10-Cycle Code Review Process (MANDATORY)
+
+**Purpose:** Catch bugs, linting errors, logic flaws, and code quality issues through iterative refinement.
+
+**Process (Exactly 10 Cycles):**
+
+```
+Cycle 1: Reviewer subagent posts Comment #1 → Fixer subagent commits Fix #1
+Cycle 2: Reviewer subagent posts Comment #2 → Fixer subagent commits Fix #2
+Cycle 3: Reviewer subagent posts Comment #3 → Fixer subagent commits Fix #3
+... (continues through Cycle 10)
+Cycle 10: Reviewer subagent posts Comment #10 → Fixer subagent commits Fix #10
+
+After Cycle 10: Merge PR if all CI checks pass + code quality criteria met
+```
+
+**Reviewer Subagent (Posts Comments):**
+
+Each comment MUST identify:
+1. **Correctness issues** - Logic errors, off-by-one bugs, null pointer risks
+2. **Linting violations** - PEP 8, TypeScript conventions, formatting
+3. **Bounds checking** - Are values properly clamped? Min/max validation?
+4. **Type safety** - Are types correct? Any implicit conversions?
+5. **Test coverage** - Are edge cases tested? Is coverage adequate?
+6. **Code clarity** - Variable names clear? Comments explaining "why"?
+7. **Performance** - Any obvious inefficiencies? Memory leaks?
+
+Comment format:
+```markdown
+### Cycle [N] Review Comment
+**File:** path/to/file.py
+**Line:** XX
+
+**Issue:** [Description of problem]
+
+**Why:** [Impact of the issue]
+
+**Suggested Fix:** [Specific code change or pattern]
+```
+
+**Fixer Subagent (Commits Fixes):**
+
+For each reviewer comment, create ONE commit addressing it:
+1. Make the code change suggested (or equivalent)
+2. Commit with message: `fix(cycle-N): address review comment #N - [brief description]`
+3. Push to same feature branch (PR auto-updates)
+4. Do NOT merge to main; wait for next cycle
+
+Example commits:
+```
+fix(cycle-1): add bounds check for page_count parameter
+fix(cycle-2): rename 'x' variable to 'doc_id' for clarity
+fix(cycle-3): add unit test for empty PDF case
+```
+
+**Example: Cycle 1**
+
+Reviewer comment:
+```markdown
+### Cycle 1 Review Comment
+**File:** src/processor/pdf_splitter.py
+**Line:** 45
+
+**Issue:** Variable `split_point` is not validated; could be negative or exceed page count.
+
+**Why:** This will cause IndexError or corrupted output PDF.
+
+**Suggested Fix:**
+```python
+if not (0 < split_point < len(pages)):
+    raise ValueError(f"split_point must be 1..{len(pages)-1}, got {split_point}")
+```
+```
+
+Fixer commits:
+```bash
+git add src/processor/pdf_splitter.py
+git commit -m "fix(cycle-1): add bounds validation for split_point parameter"
+git push origin feature/my-feature
+```
+
+**After Cycle 10: Merge Criteria**
+
+Once all 10 cycles complete, PR is merged if:
+- ✅ All tests pass (unit, integration, fuzzing)
+- ✅ Code coverage doesn't decrease (≥85%)
+- ✅ No new linter warnings (flake8 clean)
+- ✅ Type checking passes (mypy --strict)
+- ✅ Security scan passes (bandit clean)
+- ✅ Follows project style guide
+- ✅ Documentation updated (inline + external docs)
+- ✅ Commit messages are clear & referential
+- ✅ Changes align with CAVEMAN principles
+- ✅ Performance impact documented (if any)
+- ✅ No unresolved review comments
+
+**Why 10 Cycles?**
+- Empirically, most bugs/clarity issues surface within 5-7 cycles
+- 10 cycles ensures thorough vetting without diminishing returns
+- Fixed number prevents endless bike-shedding (after 10, code is merged)
+- CAVEMAN principle: "Nudge" - incremental improvements compound
+
+---
+
+### 2.5 Code Quality Criteria (Checked Each Cycle)
 
 **PRs are approved ONLY IF:**
 
