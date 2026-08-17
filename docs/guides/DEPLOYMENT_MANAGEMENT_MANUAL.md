@@ -177,7 +177,7 @@ Download `.env` template and customize:
 
 ```bash
 # Copy template
-sudo nano /volume1/docker/classifier/config/.env
+sudo vi /volume1/docker/classifier/config/.env
 ```
 
 **`.env` Configuration:**
@@ -192,29 +192,28 @@ LOG_LEVEL=INFO
 GEMINI_API_KEY=your-gemini-api-key-here
 CLAUDE_API_KEY=your-claude-api-key-here (optional)
 
-# Storage Paths
-ARCHIVE_PATH=/volume1/Archive/Originals_RAW
-DOCUMENTS_PATH=/volume1/Documents
+# Temporary Storage (Local NAS - for processing cache & backups)
 TEMP_PATH=/volume1/Temp
+ARCHIVE_BASE_PATH=/volume1/Archive
 
 # FastAPI Configuration
 API_HOST=0.0.0.0
 API_PORT=8000
 API_WORKERS=4
 
-# Database (if using PostgreSQL - optional)
+# Database (Storage configuration & metadata)
 # DATABASE_URL=postgresql://user:password@localhost:5432/classifier
+# (Optional: if using PostgreSQL; otherwise SQLite is default)
 
-# Export Destinations
-EXPORT_SHAREPOINT=false
-SHAREPOINT_SITE_ID=
-EXPORT_GOOGLE_DRIVE=false
-GOOGLE_SERVICE_ACCOUNT=/config/service-account.json
-
-# Monitoring
-SENTRY_DSN=  # Optional error tracking
-PROMETHEUS_METRICS=true
+# Storage Backend Configuration
+# NOTE: Source and destination backends are configured via Web UI, not here.
+# Default storage backends available:
+#   - google_drive (requires Google Cloud credentials)
+#   - local_nas (uses /volume1/ paths)
+#   - sharepoint (future)
 ```
+
+**Important:** Storage source/destination is configured via the Web UI Settings panel, not via environment variables. See section 5.1 for initial setup.
 
 **Save and exit:** Press `Ctrl+O`, `Enter`, `Ctrl+X`
 
@@ -223,7 +222,7 @@ PROMETHEUS_METRICS=true
 Create `docker-compose.yml` in `/volume1/docker/classifier/`:
 
 ```bash
-sudo nano /volume1/docker/classifier/docker-compose.yml
+sudo vi /volume1/docker/classifier/docker-compose.yml
 ```
 
 **docker-compose.yml:**
@@ -363,61 +362,110 @@ MAX_CONCURRENT_JOBS=3
 sudo docker-compose restart classifier-backend
 ```
 
-### 4.2 Configuring Export Destinations
+### 4.2 Configuring Storage Backends (Via Web UI)
 
-#### Local NAS (Default)
+The document source and destination are configured via the **Storage Settings** panel in the web interface. This allows non-technical users to switch backends without restarting services.
 
-Already configured. Documents save to `/volume1/Documents/{category}/{year}/`
+**Access Storage Configuration:**
+1. Navigate to http://192.168.1.100:3000
+2. Click "Settings" (gear icon)
+3. Select "Storage Configuration"
+4. Configure source, destination, and archive backends
 
-#### SharePoint Integration
+#### 4.2.1 Google Drive Setup (Recommended)
 
-```bash
-# Generate SharePoint credentials via Microsoft Graph
-# See: https://learn.microsoft.com/en-us/graph/auth-v2-service-to-service
+To use Google Drive as source and/or destination:
 
-# Save service principal credentials
-sudo nano /volume1/docker/classifier/config/sharepoint-credentials.json
-```
-
-```json
-{
-  "tenant_id": "your-tenant-id",
-  "client_id": "your-app-id",
-  "client_secret": "your-app-secret",
-  "site_id": "your-sharepoint-site-id"
-}
-```
+**Step 1: Create Google Cloud Service Account**
 
 ```bash
-# Enable in .env
-EXPORT_SHAREPOINT=true
-SHAREPOINT_CREDENTIALS_PATH=/config/sharepoint-credentials.json
-
-# Restart
-sudo docker-compose restart classifier-backend
+# Visit: https://console.cloud.google.com/iam-admin/serviceaccounts
+# 1. Create new project (e.g., "Document Classifier")
+# 2. Enable Google Drive API:
+#    APIs & Services → Library → search "Google Drive API" → Enable
+# 3. Create Service Account:
+#    Create Service Account → Name: "classifier-service"
+# 4. Create Key (JSON format):
+#    Keys → Add Key → JSON → Download JSON file
+# 5. Share Google Drive folder with service account email:
+#    In Google Drive, right-click folder → Share
+#    → Paste service account email (from JSON key file)
+#    → Grant "Editor" permission
 ```
 
-#### Google Drive Integration
+**Step 2: Upload Credentials to NAS**
 
 ```bash
-# Create service account at: https://console.cloud.google.com/iam-admin/serviceaccounts
+# Via SCP or SFTP, upload the JSON key file to:
+/volume1/docker/classifier/config/gd-service-account.json
 
-# Save service account JSON
-sudo nano /volume1/docker/classifier/config/google-service-account.json
-
-# Enable in .env
-EXPORT_GOOGLE_DRIVE=true
-GOOGLE_SERVICE_ACCOUNT=/config/google-service-account.json
-
-# Restart
-sudo docker-compose restart classifier-backend
+# Or via SSH:
+ssh admin@192.168.1.100
+sudo nano /volume1/docker/classifier/config/gd-service-account.json
+# Paste the JSON content
 ```
+
+**Step 3: Configure in Web UI**
+
+1. In Storage Configuration panel, click "Add Backend"
+2. Select "Google Drive"
+3. Upload service account JSON file or paste credentials
+4. Click "Test Connection" → should show "✓ Connected"
+5. Select source folder: "Document Inbox" (or create new)
+6. Select destination folder: "Processed Documents" (or create new)
+7. Click "Save Configuration"
+
+#### 4.2.2 Local NAS Backend (Fallback/Temporary)
+
+Local NAS storage is always available as a fallback:
+
+```
+Archive: /volume1/Archive/Originals_RAW (immutable originals)
+Temp: /volume1/Temp (processing cache)
+```
+
+To use Local NAS as destination:
+1. Storage Configuration → Select "Local NAS" for destination
+2. Enter folder path: `/volume1/Documents/Invoices/` (example)
+3. Click "Test Connection" → should show "✓ Connected"
+4. Click "Save Configuration"
+
+#### 4.2.3 SharePoint Integration (Future)
+
+Future support for Microsoft SharePoint:
+- Requires Azure AD app registration
+- OAuth2 authentication
+- Document library selection via web UI
 
 ---
 
 ## 5. Initial Startup & Verification
 
-### 5.1 Health Check Dashboard
+### 5.1 Storage Configuration & First Boot
+
+**First time setup:**
+
+1. Wait for backend to start (30-40 seconds)
+2. Navigate to http://192.168.1.100:3000
+3. Go to Settings → Storage Configuration
+4. Select a source backend (Google Drive or Local NAS)
+5. Select a destination backend
+6. Test connections
+7. Save configuration
+
+**Startup logs:**
+
+```bash
+# Check that storage backends initialized successfully
+sudo docker-compose logs classifier-backend | grep -i storage
+
+# Expected output:
+# [2026-08-17 14:30:00] Storage Manager initialized
+# [2026-08-17 14:30:01] Google Drive backend ready
+# [2026-08-17 14:30:02] Local NAS backend ready
+```
+
+### 5.2 Health Check Dashboard
 
 ```bash
 # Monitor container health
@@ -430,33 +478,49 @@ sudo docker-compose logs --follow classifier-backend
 curl http://localhost:8000/metrics | grep pdf_processing
 ```
 
-### 5.2 API Smoke Tests
+### 5.3 API Smoke Tests
 
 ```bash
-# Test health endpoint
-curl -X GET http://localhost:8000/health
+# Test health endpoint (includes storage backend status)
+curl -X GET http://localhost:8000/health | jq .
 
-# Test upload endpoint (should reject without auth)
-curl -X POST http://localhost:8000/api/upload \
-  -F "file=@/path/to/test.pdf" \
-  -H "Authorization: Bearer invalid" \
-  # Expect 403
+# Expected response should include:
+# {
+#   "status": "healthy",
+#   "checks": {
+#     "pdf_engine": "ok",
+#     "ai_api": "ok",
+#     "storage": "ok",
+#     "source_backend": "connected",
+#     "destination_backend": "connected"
+#   }
+# }
 
-# Test with valid API key (from .env)
+# Test storage configuration endpoint
+curl -X GET http://localhost:8000/api/storage/config | jq .
+
+# Test upload endpoint
 curl -X POST http://localhost:8000/api/upload \
   -F "file=@/path/to/test.pdf" \
   -H "Authorization: Bearer $API_KEY"
-  # Expect 200 with doc_id
+  # Should now upload to configured source backend
 ```
 
-### 5.3 Frontend Verification
+### 5.4 Frontend Verification
 
 Navigate to: `http://192.168.1.100:3000`
 
-Expected UI:
-- Upload area (drag-and-drop or click)
-- Document processing history
-- Settings panel
+**Expected UI sections:**
+- **Storage Configuration** (Settings → Storage): Shows current source/destination backends with test/change options
+- **Upload Area:** Drag-and-drop or click to upload PDFs from configured source
+- **Document Processing History:** Lists recent uploads and their status
+- **Settings Panel:** Configure storage, user preferences, credentials
+
+**First-time checklist:**
+- [ ] Storage Configuration shows source backend connected
+- [ ] Storage Configuration shows destination backend connected
+- [ ] Upload area displays (ready to receive documents)
+- [ ] Settings accessible and functional
 
 ---
 
@@ -519,16 +583,22 @@ curl -X POST http://localhost:8000/api/auth/register \
 
 ## 7. Daily Operations
 
-### 7.1 Upload Documents
+### 7.1 Upload Documents (From Configured Source)
+
+Documents can be ingested from:
+- **Google Drive:** Auto-monitored folder specified in Storage Configuration
+- **Local NAS:** Manual upload via web UI to /volume1/Documents/
+- **Manual Upload:** Via web UI file picker
 
 **Via Web UI:**
 1. Navigate to http://192.168.1.100:3000
 2. Click "Upload Documents" or drag-and-drop PDF
-3. Wait for analysis
-4. Review split points
-5. Click "Finalize" to export
+3. (If Google Drive source is configured, this uploads to configured source folder)
+4. Wait for analysis
+5. Review split points
+6. Click "Finalize" to export to configured destination
 
-**Via API (CLI):**
+**Via API (Upload to Configured Source Backend):**
 
 ```bash
 #!/bin/bash
@@ -821,7 +891,39 @@ sudo mv /volume1/Documents/2025 /volume1/Archive/
 sudo chmod 755 /volume1/Documents
 ```
 
-### 10.4 AI API Calls Timing Out
+### 10.4 Storage Backend Connection Issues
+
+```bash
+# Test Google Drive connection from web UI
+# Settings → Storage Configuration → Test Connection
+
+# Or via API:
+curl -X POST http://localhost:8000/api/storage/test-connection \
+  -H "Content-Type: application/json" \
+  -d '{
+    "backend_type": "google_drive",
+    "credentials": {
+      "type": "service_account",
+      "project_id": "your-project"
+    }
+  }'
+
+# Expected: {"connection_ok": true}
+
+# If connection fails:
+# 1. Verify service account JSON is valid
+#    - Download fresh key from Google Cloud Console
+#    - Upload to Web UI: Settings → Storage Configuration
+# 2. Verify service account has access to shared folders
+#    - Share Google Drive folder with service account email
+#    - Grant "Editor" permission
+# 3. Check Google Cloud API quotas
+#    - Visit: https://console.cloud.google.com/iam-admin/quotas
+# 4. Verify storage configuration saved
+#    - API: curl http://localhost:8000/api/storage/config | jq .
+```
+
+### 10.5 AI API Calls Timing Out
 
 ```bash
 # Check internet connectivity
@@ -839,7 +941,7 @@ curl -X POST https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-
 # 3. Add fallback to Claude in .env
 ```
 
-### 10.5 High CPU/Memory Usage
+### 10.6 High CPU/Memory Usage
 
 ```bash
 # Monitor resource usage
@@ -853,7 +955,7 @@ sudo docker stats --no-stream
 sudo docker-compose restart classifier-backend
 ```
 
-### 10.6 Log Viewing
+### 10.7 Log Viewing
 
 ```bash
 # Real-time logs

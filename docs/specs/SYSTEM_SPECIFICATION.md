@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-A budget-friendly, local-first document processing pipeline with AI-assisted UI hosted on Synology NAS. The system separates lightweight local execution (UI, PDF processing, splitting) from cheap cloud AI micro-services (vision/text classification), delivering a responsive user experience while maintaining strict cost controls.
+A budget-friendly, configurable document processing pipeline with AI-assisted UI hosted on Synology NAS. The system features a pluggable storage architecture supporting multiple document sources (Google Drive, local NAS, SharePoint, etc.) and destinations, with a web-based configuration interface. Lightweight local execution (UI, PDF processing, splitting) complements cheap cloud AI micro-services (vision/text classification), delivering a responsive user experience with strict cost controls and operational flexibility.
 
 ---
 
@@ -17,69 +17,77 @@ A budget-friendly, local-first document processing pipeline with AI-assisted UI 
 ### 1.1 High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ Document Source                                                 │
-│ (Scanner / File Upload)                                        │
-└────────────────────┬────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ Configurable Document Source (Pluggable Backend)                     │
+│ • Google Drive Folder (Primary)                                      │
+│ • Local NAS Upload                                                   │
+│ • SharePoint Site (future)                                           │
+│ • Dropbox (future)                                                   │
+└────────────────────┬─────────────────────────────────────────────────┘
                      │ (Multi-page PDF)
                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ Synology DS923+ (Docker Container Environment)                 │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Frontend Layer                                           │  │
-│  │ • React / Next.js Web Application                       │  │
-│  │ • Client-side PDF rendering & manipulation              │  │
-│  │ • Interactive split point visualization                 │  │
-│  │ • Real-time thumbnail generation                        │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Backend Layer                                            │  │
-│  │ • FastAPI (Python 3.9+)                                 │  │
-│  │ • PyMuPDF for PDF manipulation                           │  │
-│  │ • Tesseract OCR (optional, local)                        │  │
-│  │ • Local embeddings computation                           │  │
-│  │ • API orchestration & caching                            │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                 │
-└────────────┬──────────────────────────────────────────────┬─────┘
-             │                                              │
-             ▼                                              ▼
-    ┌────────────────────┐                  ┌──────────────────────────┐
-    │ Cloud AI Services  │                  │ User Web Interface       │
-    │ • Gemini 1.5 Flash │                  │ • Split point toggle     │
-    │ • Claude 3 Haiku   │                  │ • Page rotation controls │
-    │ (Vision + Text)    │                  │ • Metadata form fields   │
-    └────────────────────┘                  │ • Batch group review     │
-             │                              │ • One-click finalize     │
-             ▼                              └──────────────────────────┘
-    ┌────────────────────┐
-    │ Classification &   │
+┌──────────────────────────────────────────────────────────────────────┐
+│ Synology DS923+ (Docker Container Environment)                       │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ Frontend Layer                                                 │ │
+│  │ • React / Next.js Web Application                             │ │
+│  │ • Storage Backend Configuration UI (Source & Destination)     │ │
+│  │ • Client-side PDF rendering & manipulation                    │ │
+│  │ • Interactive split point visualization                       │ │
+│  │ • Real-time thumbnail generation                              │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ Backend Layer                                                  │ │
+│  │ • FastAPI (Python 3.9+)                                       │ │
+│  │ • PyMuPDF for PDF manipulation                                 │ │
+│  │ • Tesseract OCR (optional, local)                              │ │
+│  │ • Local embeddings computation                                 │ │
+│  │ • Storage Backend Manager (abstract factory pattern)           │ │
+│  │ • Pluggable source/destination backends                        │ │
+│  │ • API orchestration & caching                                  │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+└─────┬──────────────────────────────────────────────────────────┬────┘
+      │                                                          │
+      ▼                                                          ▼
+    ┌────────────────────┐                    ┌──────────────────────────┐
+    │ Cloud AI Services  │                    │ User Web Interface       │
+    │ • Gemini 1.5 Flash │                    │ • Configure Source       │
+    │ • Claude 3 Haiku   │                    │ • Configure Destination  │
+    │ (Vision + Text)    │                    │ • Split point toggle     │
+    └────────────────────┘                    │ • Page rotation controls │
+             │                                │ • Metadata form fields   │
+             ▼                                │ • Batch group review     │
+    ┌────────────────────┐                    │ • One-click finalize     │
+    │ Classification &   │                    └──────────────────────────┘
     │ Split Suggestions  │
     └────────────────────┘
              │
              ▼
-    ┌────────────────────────────────────┐
-    │ Final Output Routing               │
-    ├────────────────────────────────────┤
-    │ • Local NAS Storage                │
-    │ • SharePoint / Microsoft 365       │
-    │ • Google Drive (optional)          │
-    │ • Archive raw originals            │
-    └────────────────────────────────────┘
+    ┌──────────────────────────────────────────────────────────────┐
+    │ Configurable Output Routing (Pluggable Backend)              │
+    ├──────────────────────────────────────────────────────────────┤
+    │ • Google Drive Folder (Primary)                              │
+    │ • Local NAS Storage                                          │
+    │ • SharePoint / Microsoft 365                                 │
+    │ • Dropbox (future)                                           │
+    │ • Archive raw originals (always to configured source)        │
+    └──────────────────────────────────────────────────────────────┘
 ```
 
 ### 1.2 Component Dependencies
 
 | Component | Purpose | Technology | Resource Requirement |
 |-----------|---------|-----------|----------------------|
-| Frontend | User Interface | React/Next.js + TypeScript | ~200MB RAM |
+| Frontend | User Interface + Config | React/Next.js + TypeScript | ~200MB RAM |
 | Backend | API & Business Logic | FastAPI + Python 3.9+ | ~400MB RAM |
 | PDF Engine | Document Manipulation | PyMuPDF | Native binary (~50MB) |
 | OCR Engine | Text Extraction (Optional) | Tesseract OCR | ~300MB (if installed) |
 | AI/Vision API | Classification & Splitting | Cloud (Gemini/Claude) | API credential |
-| Storage | Document Archive | NAS /volume1/ paths | Persistent disk |
+| Storage Backend | Document Source/Destination | Pluggable (Google Drive, NAS, SharePoint) | Depends on backend |
+| Backend Manager | Abstract Storage Layer | Python (ABC pattern) | ~10MB code |
 
 ---
 
@@ -147,18 +155,22 @@ Docker & Docker Compose
 - Tesseract OCR (one-time CPU cost, no API)
 - Local header detection via regex/heuristics
 
-### 2.4 Data Flow
+### 2.4 Data Flow (Pluggable Sources & Destinations)
 
 ```
-User Upload
+[Source Backend] (Google Drive, Local NAS, SharePoint, etc.)
     ↓
-[Receive PDF] → Store in /volume1/Archive/Originals_RAW/
+[Fetch PDF] → Source backend API or local file I/O
+    ↓
+[Store Locally] → Cache to /volume1/Temp/processing/{doc_id}/
+    ↓
+[Archive Original] → Immutable copy to configured archive backend
     ↓
 [Extract Text] → PyMuPDF (vector PDF) or Tesseract (scanned)
     ↓
 [Local Feature Detection] → Blank page detection, header reading
     ↓
-[API Fallback] → Send flagged boundary pages to Gemini
+[API Fallback] → Send flagged boundary pages to Gemini API
     ↓
 [Split Suggestion] → Return JSON with split points & document type
     ↓
@@ -166,8 +178,12 @@ User Upload
     ↓
 [Finalize] → Backend slices PDF, applies rotation, generates output names
     ↓
-[Export] → Save to /volume1/Documents/ (or SharePoint/Drive)
+[Export] → Write to destination backend (Google Drive, SharePoint, NAS, etc.)
+    ↓
+[Cleanup] → Remove temp files from /volume1/Temp/ after successful export
 ```
+
+**Architecture Benefit:** Users select source and destination via web UI; no code changes needed.
 
 ---
 
@@ -190,6 +206,15 @@ User Upload
 **Export:**
 - `POST /api/export` - Finalize and export to destination
 - `GET /api/export-status/{export_id}` - Check export progress
+
+**Storage Backend Configuration:**
+- `GET /api/storage/backends` - List available backend types
+- `GET /api/storage/config` - Get current source/destination configuration
+- `POST /api/storage/config` - Update storage configuration
+- `POST /api/storage/test-connection` - Test credentials for a backend
+- `GET /api/storage/{backend_type}/folders` - List folders in backend (requires auth)
+- `POST /api/storage/credentials` - Store encrypted credentials
+- `DELETE /api/storage/credentials/{backend_id}` - Remove credentials
 
 ### 3.2 AI API Integration
 
@@ -239,35 +264,170 @@ Request Body:
 
 ---
 
+## 3.3 Storage Backend Architecture (Pluggable)
+
+The system uses an **abstract factory pattern** to support multiple storage backends for both document ingestion (source) and export (destination). This enables users to configure their workflow via the web UI without code changes.
+
+### 3.3.1 Backend Interface (Abstract Base Class)
+
+```python
+from abc import ABC, abstractmethod
+from typing import BinaryIO, List, Dict
+
+class StorageBackend(ABC):
+    """Abstract base for storage source/destination backends."""
+    
+    @abstractmethod
+    async def authenticate(self, credentials: Dict[str, str]) -> bool:
+        """Authenticate with backend. Returns True if successful."""
+        pass
+    
+    @abstractmethod
+    async def list_folders(self) -> List[Dict[str, str]]:
+        """List available folders. Returns [{"id": "...", "name": "..."}]"""
+        pass
+    
+    @abstractmethod
+    async def upload_file(self, folder_id: str, filename: str, file: BinaryIO) -> str:
+        """Upload file to folder. Returns file_id."""
+        pass
+    
+    @abstractmethod
+    async def download_file(self, file_id: str) -> BinaryIO:
+        """Download file by ID. Returns file stream."""
+        pass
+    
+    @abstractmethod
+    async def list_files(self, folder_id: str, pattern: str = "*.pdf") -> List[Dict]:
+        """List files in folder. Returns [{"id": "...", "name": "...", "modified": "..."}]"""
+        pass
+    
+    @abstractmethod
+    async def delete_file(self, file_id: str) -> bool:
+        """Delete file. Returns True if successful."""
+        pass
+    
+    @abstractmethod
+    async def get_storage_info(self) -> Dict:
+        """Return storage info: {"used_bytes": ..., "total_bytes": ..., "account": "..."}"""
+        pass
+```
+
+### 3.3.2 Implemented Backends
+
+**Google Drive Backend:**
+- Uses Google Drive API v3 via service account or OAuth2
+- Supports folder hierarchies, shared drives
+- Credentials stored securely in config
+- Cost: Free (limited), or included in Google Workspace
+
+**Local NAS Backend:**
+- Direct file I/O to `/volume1/` paths
+- No external authentication
+- Fastest performance (local disk I/O)
+- Useful as fallback or temporary staging
+
+**SharePoint Backend (Future):**
+- Microsoft Graph API integration
+- Supports document libraries
+- Azure AD authentication
+
+**Dropbox Backend (Future):**
+- Dropbox API v2
+- OAuth2 authentication
+
+### 3.3.3 Backend Configuration Management
+
+**Storage Configuration (persisted in database):**
+
+```json
+{
+  "storage_config": {
+    "source": {
+      "type": "google_drive",
+      "backend_id": "source-gd-1",
+      "credentials_key": "gd_creds_2026",
+      "folder_id": "1a2b3c4d5e6f7g8h9i0j",
+      "folder_name": "Document Inbox",
+      "account": "documents@company.com"
+    },
+    "destination": {
+      "type": "google_drive",
+      "backend_id": "dest-gd-1",
+      "credentials_key": "gd_creds_2026",
+      "folder_id": "9z8y7x6w5v4u3t2s1r0q",
+      "folder_name": "Processed Documents",
+      "account": "documents@company.com"
+    },
+    "archive": {
+      "type": "local_nas",
+      "path": "/volume1/Archive/Originals_RAW"
+    }
+  }
+}
+```
+
+### 3.3.4 Storage Backend Selection UI
+
+Users configure storage via web interface panel:
+
+```
+┌─ Storage Configuration ────────────────────────────────┐
+│                                                        │
+│ SOURCE: Google Drive                                  │
+│  ├─ Account: documents@company.com                   │
+│  ├─ Folder: Document Inbox                           │
+│  └─ [Change] [Test Connection]                       │
+│                                                        │
+│ DESTINATION: Google Drive                             │
+│  ├─ Account: documents@company.com                   │
+│  ├─ Folder: Processed Documents                      │
+│  └─ [Change] [Test Connection]                       │
+│                                                        │
+│ ARCHIVE (immutable): Local NAS                        │
+│  ├─ Path: /volume1/Archive/Originals_RAW             │
+│  └─ Storage: 2.3 TB / 5.0 TB                          │
+│                                                        │
+│ [Add Backend] [Remove] [Save Configuration]           │
+└────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 4. Database & Storage Schema
 
-### 4.1 File System Layout
+### 4.1 File System Layout (Local NAS - Temporary & Archive)
+
+The NAS storage is used for:
+- **Temporary processing** (documents in transit, pending finalization)
+- **Archive** (immutable originals from source backend)
+- **Cache** (thumbnails, renderings)
+
+NAS volumes (if using local NAS as archive backend):
 
 ```
 /volume1/
 ├── Archive/
 │   └── Originals_RAW/
-│       ├── {timestamp}_{uuid}_original.pdf (immutable)
+│       ├── {timestamp}_{uuid}_original.pdf (immutable copy from source)
 │       └── metadata.json
-├── Documents/
-│   ├── Invoices/
-│   │   ├── 2026/
-│   │   │   └── 2026-08-17_Invoice_VendorName.pdf
-│   │   └── 2025/
-│   ├── Receipts/
-│   ├── Contracts/
-│   └── [Other Categories]/
-└── Temp/
-    ├── processing/
-    │   └── {doc_id}/
-    │       ├── original.pdf
-    │       ├── pages/
-    │       │   ├── page_001.jpg
-    │       │   ├── page_002.jpg
-    │       │   └── ...
-    │       └── analysis.json
-    └── exports/
+├── Temp/
+│   ├── processing/
+│   │   └── {doc_id}/
+│   │       ├── original.pdf
+│   │       ├── pages/
+│   │       │   ├── page_001.jpg
+│   │       │   ├── page_002.jpg
+│   │       │   └── ...
+│   │       └── analysis.json
+│   └── exports/
+│       └── {export_id}/
+│           └── split_pdfs/
+└── Backups/
+    └── (system backups, not user documents)
 ```
+
+**Note:** If source/destination backends are configured (Google Drive, SharePoint, etc.), final documents are NOT stored on NAS; they're written directly to the destination backend. NAS only holds temporary processing files and archives of originals.
 
 ### 4.2 Metadata Structure
 
@@ -302,9 +462,19 @@ Request Body:
     {
       "filename": "2026-08-17_Invoice_AcmeCorp.pdf",
       "pages": "1-14",
-      "destination": "local_nas"
+      "destination_backend": "google_drive",
+      "destination_folder_id": "9z8y7x6w5v4u3t2s1r0q",
+      "destination_folder_name": "Processed Documents",
+      "file_id": "external_drive_file_123",
+      "export_status": "completed",
+      "export_timestamp": "2026-08-17T14:35:00Z"
     }
-  ]
+  ],
+  "source_backend": {
+    "type": "google_drive",
+    "folder_id": "1a2b3c4d5e6f7g8h9i0j",
+    "file_id": "original_drive_file_456"
+  }
 }
 ```
 
@@ -399,14 +569,16 @@ Request Body:
 1. **Multi-User Workflow:** Role-based access (Reviewer, Approver, Admin)
 2. **OCR Post-Processing:** Layout reconstruction for rotated/split pages
 3. **Webhook Export:** Trigger external systems via HTTP callbacks
-4. **Advanced Batch Processing:** Schedule recurring document ingestion
+4. **Advanced Batch Processing:** Schedule recurring document ingestion from source backend
 5. **BI Dashboard:** Monthly cost reports, processing metrics
+6. **Additional Storage Backends:** Dropbox, Azure Blob, S3 support
 
 ### 9.2 Extensibility Points
 
-- Pluggable storage backends (S3, Azure Blob, Dropbox)
+- Pluggable storage backends (implement `StorageBackend` ABC for new providers)
 - Custom AI provider integration (LLaMA local, text-only APIs)
 - User-defined split point heuristics (regex rules, ML classifiers)
+- Custom credential providers (HashiCorp Vault, AWS Secrets Manager)
 
 ---
 

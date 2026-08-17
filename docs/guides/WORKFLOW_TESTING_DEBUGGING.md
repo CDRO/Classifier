@@ -157,6 +157,137 @@ class TestPDFProcessor:
         from PIL import Image
         img = Image.open(output)
         assert img.size[0] >= expected_size[0] * 0.95  # Allow 5% variance
+
+### 2.2.2 Storage Backend Unit Tests
+
+```python
+# tests/unit/test_storage_backends.py
+import pytest
+from src.storage.backends import GoogleDriveBackend, LocalNASBackend, StorageBackend
+from src.storage.exceptions import StorageAuthenticationError, StorageOperationError
+
+class TestStorageBackendInterface:
+    """Test that all backends implement the StorageBackend contract."""
+    
+    @pytest.fixture
+    def google_drive_backend(self):
+        return GoogleDriveBackend(service_account_path="/config/gd-sa.json")
+    
+    @pytest.fixture
+    def local_nas_backend(self):
+        return LocalNASBackend(base_path="/volume1/Documents")
+    
+    def test_google_drive_authenticate_valid_credentials(self, google_drive_backend, mocker):
+        """✓ Google Drive authentication succeeds with valid service account."""
+        mocker.patch.object(google_drive_backend, '_get_service', return_value=MagicMock())
+        
+        result = google_drive_backend.authenticate({
+            "type": "service_account",
+            "project_id": "test-project"
+        })
+        
+        assert result is True
+    
+    def test_google_drive_authenticate_invalid_credentials(self, google_drive_backend, mocker):
+        """✓ Google Drive authentication fails with invalid credentials."""
+        mocker.patch.object(google_drive_backend, '_get_service', side_effect=Exception("Invalid key"))
+        
+        with pytest.raises(StorageAuthenticationError):
+            google_drive_backend.authenticate({"invalid": "creds"})
+    
+    def test_local_nas_authenticate_path_exists(self):
+        """✓ Local NAS backend authenticates if path is readable."""
+        backend = LocalNASBackend(base_path="/volume1/Documents")
+        result = backend.authenticate({})
+        assert result is True
+    
+    def test_local_nas_authenticate_path_not_exists(self, tmp_path):
+        """✓ Local NAS backend fails if path is not accessible."""
+        backend = LocalNASBackend(base_path="/nonexistent/path")
+        
+        with pytest.raises(StorageAuthenticationError):
+            backend.authenticate({})
+    
+    def test_list_folders_google_drive(self, google_drive_backend, mocker):
+        """✓ Google Drive lists folders in account."""
+        mock_service = MagicMock()
+        mock_service.files().list().execute.return_value = {
+            "files": [
+                {"id": "folder1", "name": "Document Inbox", "mimeType": "application/vnd.google-apps.folder"},
+                {"id": "folder2", "name": "Archive", "mimeType": "application/vnd.google-apps.folder"}
+            ]
+        }
+        mocker.patch.object(google_drive_backend, '_get_service', return_value=mock_service)
+        
+        folders = google_drive_backend.list_folders()
+        
+        assert len(folders) == 2
+        assert folders[0]["name"] == "Document Inbox"
+    
+    def test_upload_file_google_drive(self, google_drive_backend, mocker, tmp_path):
+        """✓ Google Drive upload succeeds and returns file_id."""
+        test_file = tmp_path / "test.pdf"
+        test_file.write_bytes(b"PDF content")
+        
+        mock_service = MagicMock()
+        mock_service.files().create().execute.return_value = {"id": "file_123"}
+        mocker.patch.object(google_drive_backend, '_get_service', return_value=mock_service)
+        
+        file_id = google_drive_backend.upload_file("folder_id", "test.pdf", open(test_file, "rb"))
+        
+        assert file_id == "file_123"
+    
+    def test_download_file_google_drive(self, google_drive_backend, mocker):
+        """✓ Google Drive download returns file stream."""
+        mock_service = MagicMock()
+        mock_request = MagicMock()
+        mock_request.getbytes.return_value = b"PDF content"
+        mock_service.files().get_media.return_value = mock_request
+        mocker.patch.object(google_drive_backend, '_get_service', return_value=mock_service)
+        
+        file_stream = google_drive_backend.download_file("file_123")
+        
+        assert file_stream.read() == b"PDF content"
+    
+    def test_local_nas_upload_creates_file(self, tmp_path):
+        """✓ Local NAS upload writes file to disk."""
+        backend = LocalNASBackend(base_path=str(tmp_path))
+        test_content = b"PDF content"
+        from io import BytesIO
+        
+        file_id = backend.upload_file(str(tmp_path), "test.pdf", BytesIO(test_content))
+        
+        uploaded_file = tmp_path / "test.pdf"
+        assert uploaded_file.exists()
+        assert uploaded_file.read_bytes() == test_content
+    
+    def test_local_nas_delete_file(self, tmp_path):
+        """✓ Local NAS delete removes file."""
+        backend = LocalNASBackend(base_path=str(tmp_path))
+        test_file = tmp_path / "test.pdf"
+        test_file.write_bytes(b"content")
+        
+        success = backend.delete_file(str(test_file))
+        
+        assert success is True
+        assert not test_file.exists()
+    
+    def test_storage_config_validation(self):
+        """✓ Storage configuration validates backend types."""
+        from src.storage.config import StorageConfig
+        
+        # Valid config
+        config = StorageConfig({
+            "source": {"type": "google_drive", "folder_id": "123"},
+            "destination": {"type": "local_nas", "path": "/volume1/Documents"}
+        })
+        assert config.is_valid() is True
+        
+        # Invalid backend type
+        config = StorageConfig({
+            "source": {"type": "invalid_backend", "path": "/"}
+        })
+        assert config.is_valid() is False
 ```
 
 ### 2.3 Unit Test Execution
@@ -264,7 +395,106 @@ class TestAnalysisEndpoint:
             time.sleep(0.5)
         
         assert data["status"] == "completed"
-```
+
+class TestStorageConfigurationEndpoints:
+    
+    def test_get_available_backends(self, client):
+        """✓ List all available storage backend types."""
+        response = client.get("/api/storage/backends")
+        
+        assert response.status_code == 200
+        backends = response.json()["backends"]
+        assert "google_drive" in backends
+        assert "local_nas" in backends
+        # Should include type, description, required_credentials
+        assert backends["google_drive"]["description"]
+    
+    def test_get_current_storage_config(self, client):
+        """✓ Retrieve current source/destination configuration."""
+        response = client.get("/api/storage/config")
+        
+        assert response.status_code == 200
+        config = response.json()
+        assert "source" in config
+        assert "destination" in config
+        assert config["source"]["type"] in ["google_drive", "local_nas"]
+    
+    def test_test_connection_google_drive_success(self, client, mocker):
+        """✓ Test Google Drive credentials succeed."""
+        mocker.patch("src.storage.backends.GoogleDriveBackend.authenticate", return_value=True)
+        
+        response = client.post("/api/storage/test-connection", json={
+            "backend_type": "google_drive",
+            "credentials": {
+                "type": "service_account",
+                "project_id": "test-project"
+            }
+        })
+        
+        assert response.status_code == 200
+        assert response.json()["connection_ok"] is True
+    
+    def test_test_connection_google_drive_failure(self, client, mocker):
+        """✓ Test Google Drive connection fails with invalid credentials."""
+        mocker.patch("src.storage.backends.GoogleDriveBackend.authenticate", side_effect=Exception("Auth failed"))
+        
+        response = client.post("/api/storage/test-connection", json={
+            "backend_type": "google_drive",
+            "credentials": {"invalid": "creds"}
+        })
+        
+        assert response.status_code == 400
+        assert response.json()["connection_ok"] is False
+    
+    def test_list_google_drive_folders(self, client, mocker):
+        """✓ List folders from authenticated Google Drive."""
+        mock_folders = [
+            {"id": "folder1", "name": "Document Inbox"},
+            {"id": "folder2", "name": "Archive"}
+        ]
+        mocker.patch("src.storage.backends.GoogleDriveBackend.list_folders", return_value=mock_folders)
+        
+        response = client.get("/api/storage/google_drive/folders")
+        
+        assert response.status_code == 200
+        folders = response.json()["folders"]
+        assert len(folders) == 2
+        assert folders[0]["name"] == "Document Inbox"
+    
+    def test_update_storage_config(self, client, mocker):
+        """✓ Update source and destination storage backends."""
+        new_config = {
+            "source": {
+                "type": "google_drive",
+                "folder_id": "1a2b3c4d5e6f7g8h9i0j",
+                "folder_name": "Document Inbox"
+            },
+            "destination": {
+                "type": "google_drive",
+                "folder_id": "9z8y7x6w5v4u3t2s1r0q",
+                "folder_name": "Processed Documents"
+            }
+        }
+        
+        # Mock credential validation
+        mocker.patch("src.storage.config.StorageConfig.validate", return_value=True)
+        mocker.patch("src.storage.config.StorageConfig.persist")
+        
+        response = client.post("/api/storage/config", json=new_config)
+        
+        assert response.status_code == 200
+        assert response.json()["message"] == "Configuration updated"
+    
+    def test_update_storage_config_invalid_backend(self, client):
+        """✓ Reject configuration with invalid backend type."""
+        invalid_config = {
+            "source": {"type": "invalid_backend", "path": "/"}
+        }
+        
+        response = client.post("/api/storage/config", json=invalid_config)
+        
+        assert response.status_code == 400
+        assert "Unknown backend type" in response.json()["detail"]
 
 ---
 
