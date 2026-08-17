@@ -1165,14 +1165,58 @@ CACHE_THUMBNAILS=true
 
 Upgrade NAS RAM to 16GB.
 
-### Scenario 2: Secure/Air-Gapped Deployment
+### Scenario 2: Google Drive Source & Destination (Most Common)
+
+**Setup Steps:**
+
+1. Create Google Cloud service account
+   - Visit https://console.cloud.google.com
+   - IAM & Admin → Service Accounts → Create Service Account
+   - Name: `classifier-service`, skip optional steps
+   - Go to Keys → Add Key → JSON → Download
+
+2. Enable Google Drive API
+   - Enabled APIs & services → Enable APIs and Services
+   - Search "Google Drive API" → Enable
+
+3. Create/share Google Drive folders
+   - Create "Document Inbox" folder for source
+   - Create "Processed Documents" folder for destination
+   - Right-click each → Share → Add service account email → Editor permission
+
+4. Configure in classifier
+   - Settings → Storage Configuration
+   - Source Backend: Google Drive
+   - Destination Backend: Google Drive
+   - Upload service account JSON file
+   - Test Connection (should succeed)
+   - Save configuration
+
+5. Verify (first boot)
+   - Restart backend: `sudo docker-compose restart classifier-backend`
+   - Check logs: `sudo docker-compose logs classifier-backend | grep "backend ready"`
+   - Should see: `Google Drive backend ready`
+
+**Performance:** 
+- Recommended for < 100 docs/day
+- API quota: 10M free requests/day
+- Cost: Free tier, or $0.00-0.10 per 1M requests if exceeding quota
+
+### Scenario 2b: Secure/Air-Gapped Deployment
 
 ```ini
 ENABLE_AUTH=true
 JWT_SECRET=long-random-string
-EXPORT_SHAREPOINT=false
-EXPORT_GOOGLE_DRIVE=false
 ALLOW_EXTERNAL_API_CALLS=false  # Local OCR only
+```
+
+**Storage:** Use Local NAS backend only (Settings → Storage Configuration → Local NAS)
+
+```bash
+# Create local storage directories on NAS
+sudo mkdir -p /volume1/Inbox
+sudo mkdir -p /volume1/Outbox
+sudo chmod 755 /volume1/Inbox /volume1/Outbox
 ```
 
 ### Scenario 3: Multi-User Collaborative Workflow
@@ -1183,6 +1227,11 @@ ENABLE_AUTH=true
 REVIEWER_APPROVAL_REQUIRED=true
 AUDIT_LOG_ENABLED=true
 ```
+
+**Storage:** Use Google Drive backend with shared Team Drive
+- Source: Shared team folder "Inbox"
+- Destination: Shared team folder "Processed"
+- Archive: Local NAS `/volume1/Archive` (optional, for compliance)
 
 ---
 
