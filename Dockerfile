@@ -5,7 +5,7 @@ WORKDIR /app
 COPY frontend/ ./frontend/
 COPY app/ ./app/
 
-RUN mkdir -p /data/source /data/destination
+RUN mkdir -p /data/source /data/destination /data/config
 RUN pip install --no-cache-dir fastapi uvicorn
 
 EXPOSE 3000

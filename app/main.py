@@ -66,11 +66,18 @@ def read_config() -> List[str]:
 
 
 def response_for(destinees: List[str]) -> ClassificationResponse:
+    ensure_destinee_directories(destinees)
     return ClassificationResponse(
         destinees=destinees,
         input_path=str(SOURCE_PATH),
         output_root=f"{DESTINATION_PATH}/",
     )
+
+
+def ensure_destinee_directories(destinees: List[str]) -> None:
+    DESTINATION_PATH.mkdir(parents=True, exist_ok=True)
+    for destinee in destinees:
+        (DESTINATION_PATH / destinee).mkdir(exist_ok=True)
 
 
 @app.get("/api/ingestion/status")
@@ -92,9 +99,7 @@ def update_classification_config(config: ClassificationConfig) -> Classification
     try:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(config.model_dump_json(indent=2), encoding="utf-8")
-        DESTINATION_PATH.mkdir(parents=True, exist_ok=True)
-        for destinee in config.destinees:
-            (DESTINATION_PATH / destinee).mkdir(exist_ok=True)
+        ensure_destinee_directories(config.destinees)
     except OSError as exc:
         raise HTTPException(status_code=500, detail="Unable to persist classification configuration") from exc
     return response_for(config.destinees)
