@@ -77,6 +77,11 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create valid PDF fixture in the test container."
     }
+    $tesseractVersion = docker exec $container tesseract --version
+    if ($LASTEXITCODE -ne 0) {
+        throw "Tesseract OCR is not available in the image."
+    }
+    $tesseractVersion | Select-Object -First 1 | Write-Output
     docker exec $container sh -c "cp /data/source/handoff.pdf /data/source/second.pdf"
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create second scan fixture."
@@ -116,6 +121,7 @@ try {
     Assert-Equal $prepared.original_name "handoff.pdf" "Prepared filename mismatch"
     Assert-Equal $prepared.page_count 1 "Prepared page count mismatch"
     Assert-Equal $prepared.status "in_review" "Prepared document status mismatch"
+    Assert-Equal $prepared.ocr_used $false "Unexpected OCR usage for text PDF"
     $analysis = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/analyze?processing_id=$($prepared.processing_id)" -Method Post
     Assert-Equal $analysis.topic "Invoice" "Content topic mismatch"
     Assert-Equal $analysis.category "Invoice" "Content category mismatch"

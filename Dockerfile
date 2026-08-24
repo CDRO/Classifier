@@ -7,6 +7,9 @@ ENV APP_VERSION=$APP_VERSION
 WORKDIR /app
 
 RUN apk add --no-cache libstdc++ \
+	tesseract-ocr \
+	tesseract-ocr-data-eng \
+	tesseract-ocr-data-deu \
 	&& pip install --no-cache-dir fastapi uvicorn pymupdf httpx
 RUN mkdir -p /data/source /data/destination /data/archive /data/config
 

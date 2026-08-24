@@ -5,6 +5,7 @@ import base64
 import os
 import re
 import shutil
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -33,6 +34,7 @@ GEMINI_ENDPOINT = os.getenv(
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
 )
 GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "20"))
+OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+deu")
 
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
 _FILENAME_PATTERN = re.compile(r"^[^/\\\x00]+\.pdf$", re.IGNORECASE)
@@ -143,6 +145,26 @@ def write_analysis_status(available: bool, message: Optional[str] = None, retry_
         json.dumps({"available": available, "message": message, "retry_after": retry_after}, indent=2),
         encoding="utf-8",
     )
+
+
+def extract_page_text(page: object) -> tuple[str, bool]:
+    text = page.get_text()
+    if text.strip():
+        return text, False
+    image = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False).tobytes("png")
+    try:
+        result = subprocess.run(
+            ["tesseract", "stdin", "stdout", "-l", OCR_LANGUAGES, "--psm", "6"],
+            input=image,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return "", False
+    if result.returncode != 0:
+        return "", False
+    return result.stdout.decode("utf-8", errors="replace"), True
 
 
 def analyze_text(text: str, filename: str) -> dict:
@@ -414,10 +436,12 @@ def prepare_document(filename: str) -> dict:
         processing_directory.mkdir(parents=True, exist_ok=False)
         shutil.copy2(document_path, processing_path)
         with fitz.open(processing_path) as pdf:
-            pages = [
-                {"page": page_number + 1, "text": page.get_text()[:2000]}
-                for page_number, page in enumerate(pdf)
-            ]
+            pages = []
+            for page_number, page in enumerate(pdf):
+                page_text, ocr_used = extract_page_text(page)
+                pages.append(
+                    {"page": page_number + 1, "text": page_text[:2000], "ocr_used": ocr_used}
+                )
         write_document_state(
             document_path.name,
             "in_review",
@@ -437,6 +461,7 @@ def prepare_document(filename: str) -> dict:
         "processing_path": str(processing_path),
         "page_count": len(pages),
         "pages": pages,
+        "ocr_used": any(page["ocr_used"] for page in pages),
         "status": "in_review",
     }
 
@@ -450,7 +475,7 @@ def analyze_document(filename: str, processing_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Prepared document not found")
     try:
         with fitz.open(processing_path) as pdf:
-            text = "\n".join(page.get_text() for page in pdf)
+            text = "\n".join(extract_page_text(page)[0] for page in pdf)
             result = analyze_with_gemini(text, filename, pdf) or analyze_text(text, filename)
     except (OSError, fitz.FileDataError) as exc:
         write_document_state(filename, "failed", error="Unable to analyze PDF")

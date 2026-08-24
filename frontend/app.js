@@ -130,7 +130,8 @@ async function inspectDocument(filename) {
     preparedDocument.pages.forEach((page) => {
       const block = document.createElement("article");
       block.className = "page-text-block";
-      block.innerHTML = `<strong>Page ${page.page}</strong><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
+      const ocrLabel = page.ocr_used ? " · OCR" : "";
+      block.innerHTML = `<strong>Page ${page.page}${ocrLabel}</strong><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
       pageText.append(block);
     });
     finalizeButton.disabled = true;

@@ -203,6 +203,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Run document-inbox and inspection checks in a disposable Docker container
 - [x] Prepare selected PDFs and display review metadata in the native UI
 - [x] Analyze PDF text locally and suggest a descriptive output filename
+- [x] Use Tesseract OCR for image-only pages
 - [x] Ask Gemini to suggest filenames using the document's language
 - [x] Add optional Gemini enrichment with local fallback
 - [x] Show Gemini configuration and actual analysis provider in the review UI
@@ -276,6 +277,8 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [ ] E2E tests for full workflow
 
 The frontend is intentionally native HTML, CSS, and browser JavaScript. It has no Node.js, npm, or third-party runtime dependency. Any future third-party browser library must be checked in as compiled JavaScript after review.
+
+OCR defaults to English and German. Override the server setting with `OCR_LANGUAGES` (for example `eng+deu`) when adding compatible Tesseract language data to the image.
 
 ### Medium-term (Tier 3: Additional Backends)
 - [ ] SharePoint backend implementation
