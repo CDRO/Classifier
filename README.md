@@ -220,6 +220,55 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [ ] Performance testing (upload/download speed, API rate limits)
 - [ ] Documentation for developers adding new backends
 
+### Next (Tier 1.5: Local Fallback and Document Handling)
+
+1. **OCR fallback for scanned PDFs**
+    - Detect pages with little or no extractable text.
+    - Render those pages with PyMuPDF and run local Tesseract OCR.
+    - Add German and English language data first.
+    - Store OCR output only in the temporary processing workspace.
+
+2. **Image preprocessing for OCR**
+    - Grayscale, upscale, contrast enhancement, deskew, denoise, and orientation handling.
+
+3. **Language-aware local analysis**
+    - Detect the document language.
+    - Select matching OCR and keyword rules.
+    - Analyze each page separately and aggregate the result.
+
+4. **Richer local classification**
+    - Expand categories for invoices, receipts, medical documents, insurance, tax, banking, contracts, government letters, school documents, and utility bills.
+    - Extract dates, sender/vendor, recipient, reference numbers, amounts, and currencies.
+    - Return classification signals and confidence explanations.
+
+5. **Document identity and duplicate detection**
+    - Calculate a SHA-256 hash for each source PDF.
+    - Track status by stable document identity rather than filename alone.
+    - Detect duplicates when n8n changes a filename or redelivers a file.
+
+6. **Page rotation**
+    - Show page orientation in the review UI.
+    - Allow 90, 180, and 270 degree rotation per page.
+    - Apply rotation to the prepared PDF only.
+    - Verify that the rotated result remains a valid PDF.
+
+7. **Document splitting**
+    - Show page thumbnails and page boundaries.
+    - Allow users to add, remove, and move split points.
+    - Support multiple output documents from one source PDF.
+    - Preserve page order and validate that every page belongs to exactly one output.
+
+8. **Review and finalization integration**
+    - Display OCR text, analysis signals, rotations, and split groups together.
+    - Let the user correct the category, filename, and destinee.
+    - Finalize all split outputs safely and archive the original once.
+
+9. **Local fallback tests and performance checks**
+    - Add OCR fixtures for German and English scanned pages.
+    - Add rotation and split regression tests.
+    - Add malformed-PDF, boundary, duplicate, and path-traversal tests.
+    - Measure OCR and 50-page processing against NAS targets.
+
 ### Short-term (Tier 2: API Endpoints + UI)
 - [ ] FastAPI endpoints for ingestion status and classification configuration
 - [ ] Connect the native JavaScript UI to the classification configuration API

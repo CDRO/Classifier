@@ -571,12 +571,18 @@ NAS volumes (if using local NAS as archive backend):
 
 ### 9.1 Planned Features
 
-1. **Multi-User Workflow:** Role-based access (Reviewer, Approver, Admin)
-2. **OCR Post-Processing:** Layout reconstruction for rotated/split pages
-3. **Webhook Export:** Trigger external systems via HTTP callbacks
-4. **Advanced Batch Processing:** Schedule recurring document ingestion from source backend
-5. **BI Dashboard:** Monthly cost reports, processing metrics
-6. **Additional Storage Backends:** Dropbox, Azure Blob, S3 support
+1. **OCR Fallback:** Tesseract for image-only pages with German and English language data
+2. **Image Preprocessing:** Deskew, denoise, contrast, orientation, and grayscale preparation
+3. **Language-Aware Local Analysis:** Page-level language detection and matching rules
+4. **Richer Local Classification:** Categories, entities, signals, and confidence explanations
+5. **Document Identity:** SHA-256 duplicate detection independent of filename
+6. **Page Rotation:** Per-page 90, 180, and 270 degree rotation in the review workflow
+7. **Document Splitting:** User-controlled boundaries and multiple output PDFs
+8. **Multi-User Workflow:** Role-based access (Reviewer, Approver, Admin)
+9. **Webhook Export:** Trigger external systems via HTTP callbacks
+10. **Advanced Batch Processing:** Schedule recurring document ingestion from n8n
+11. **BI Dashboard:** Monthly cost reports and processing metrics
+12. **Additional Storage Backends:** Dropbox, Azure Blob, and S3 support
 
 ### 9.2 Extensibility Points
 

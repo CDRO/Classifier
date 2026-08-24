@@ -1106,6 +1106,23 @@ Run it from PowerShell:
 
 The test must not use the development container name or port and must never leave a test container running after completion.
 
+### 10.3 Local Fallback and Document-Handling Test Plan
+
+The next implementation phase must add focused tests for:
+
+- OCR activation when a page has no extractable text.
+- German and English OCR language selection.
+- Image preprocessing and orientation handling.
+- Page-level text aggregation and classification signals.
+- SHA-256 duplicate detection when filenames differ.
+- Rotation at 90, 180, and 270 degrees.
+- Split boundaries at the first page, last page, and between every page.
+- Validation that every source page belongs to exactly one split output.
+- Multiple output filenames and one-time source archiving.
+- Malformed PDFs, empty documents, and failed OCR recovery.
+
+All integration tests for these features must run in a disposable Docker container and remove the container and temporary mounts in `finally`.
+
 ---
 
 ## 11. Rollback Procedures
