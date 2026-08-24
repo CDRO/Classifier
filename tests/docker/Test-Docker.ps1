@@ -122,6 +122,9 @@ try {
     if (-not (Test-Path (Join-Path $archivePath "handoff.pdf"))) {
         throw "Finalized PDF was not moved to the processed archive."
     }
+    if (Test-Path (Join-Path $tempPath "processing\$($prepared.processing_id)")) {
+        throw "Temporary processing workspace was not cleaned up."
+    }
     $inboxAfterFinalize = Invoke-RestMethod -Uri "$baseUrl/api/classification/scan" -Method Post
     Assert-Equal $inboxAfterFinalize.count 0 "Processed PDF remained in inbox scan"
     $classifiedState = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get

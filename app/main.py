@@ -301,6 +301,7 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
             destination_path=str(destination_file),
             archive_path=str(archived_file),
         )
+        shutil.rmtree(processing_path.parent, ignore_errors=True)
     except HTTPException:
         raise
     except OSError as exc:
