@@ -47,10 +47,10 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .path-card small { margin-top: 7px; color: var(--muted); font: 13px Arial, sans-serif; }
 .workspace-panel, .folder-preview { padding: 30px; border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow); }
 .inbox-panel { margin-top: 20px; padding: 30px; border: 1px solid var(--line); background: #f1f5ef; }
-.workflow-layout { position: relative; left: 50%; display: grid; grid-template-columns: 420px minmax(0, 1100px); align-items: start; gap: 20px; width: min(1540px, calc(100vw - 32px)); margin: 20px 0 0; transform: translateX(-50%); }
+.workflow-layout { position: relative; left: 50%; display: grid; grid-template-columns: 420px minmax(0, 1220px); align-items: start; gap: 20px; width: min(1600px, calc(100vw - 32px)); margin: 20px auto 0; transform: translateX(-50%); }
 .workflow-layout .inbox-panel, .workflow-layout .review-panel { margin-top: 0; }
-.workflow-layout:not(.review-active) { display: block; width: min(1100px, calc(100vw - 32px)); }
-.review-panel { margin-top: 20px; padding: 30px; border: 1px solid #c7dfcf; background: var(--panel); box-shadow: var(--shadow); }
+.workflow-layout:not(.review-active) { display: block; width: min(1200px, calc(100vw - 32px)); }
+.review-panel { width: min(100%, 1200px); margin: 20px auto 0; padding: 30px; border: 1px solid #c7dfcf; background: var(--panel); box-shadow: var(--shadow); }
 .workflow-layout .review-panel { display: none; position: sticky; top: 20px; transform: translateX(120%); opacity: 0; pointer-events: none; transition: transform .42s cubic-bezier(.22, 1, .36, 1), opacity .25s ease; }
 .workflow-layout.review-active .review-panel { display: block; }
 .workflow-layout.review-active .review-panel { transform: translateX(0); opacity: 1; pointer-events: auto; }
@@ -122,15 +122,19 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .source-group { display: grid; gap: 8px; }
 .source-group-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); background: #edf2ee; color: var(--muted); font: 700 11px Arial, sans-serif; letter-spacing: .8px; text-transform: uppercase; }
 .source-group-count { color: var(--green); }
-.inbox-item { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 16px; border: 1px solid var(--line); background: white; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+.panel-actions-inline { display: flex; align-items: center; gap: 10px; }
+.merge-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 0 10px 0 0; color: var(--muted); font: 700 10px Arial, sans-serif; letter-spacing: .8px; text-transform: uppercase; }
+.merge-toggle input { accent-color: var(--green); }
+.inbox-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px 12px; padding: 14px 16px; border: 1px solid var(--line); background: white; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
 .inbox-item.is-active { border-color: var(--green); background: #edf8f1; box-shadow: inset 0 0 0 1px rgba(39, 103, 73, 0.2); }
 .inbox-item.is-active .inbox-document strong { color: var(--green); }
+.inbox-item-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .inbox-item strong, .inbox-item small { display: block; }
 .inbox-item strong { font-size: 16px; font-weight: 400; overflow-wrap: anywhere; }
 .inbox-item small { margin-top: 5px; color: var(--muted); font: 11px Arial, sans-serif; }
-.inbox-document { flex: 1 1 auto; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); text-align: left; }
+.inbox-document { grid-column: 1 / 2; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); text-align: left; }
 .inbox-document:hover strong { color: var(--green); }
-.inbox-item-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
+.inbox-item-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 10px; }
 .queue-badges { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .queue-badge { display: inline-flex; align-items: center; padding: 4px 7px; border: 1px solid var(--line); border-radius: 999px; font: 700 9px Arial, sans-serif; letter-spacing: .7px; text-transform: uppercase; }
 .queue-badge-safe { border-color: #cfe0d4; background: #eef8f1; color: var(--green); }
@@ -139,8 +143,11 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .queue-badge-neutral { border-color: var(--line); background: #f2f5f1; color: var(--muted); }
 .dismiss-button { padding: 6px 8px; border: 1px solid #e5c8bd; border-radius: 2px; background: #fff8f5; color: #9b4d36; font: 700 10px Arial, sans-serif; }
 .dismiss-button:hover { border-color: #b8664e; background: #fff0e9; }
-.file-state { flex: 0 0 auto; color: var(--green); font: 700 10px Arial, sans-serif; letter-spacing: 1px; }
-.review-grid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(260px, 1fr); gap: 22px; margin-top: 24px; }
+.shelve-button { padding: 6px 8px; border: 1px solid #d7d9d4; border-radius: 2px; background: #f2f4f1; color: var(--muted); font: 700 10px Arial, sans-serif; }
+.shelve-button:hover { border-color: var(--green); background: #edf8f1; color: var(--green); }
+.inbox-item.is-shelved { opacity: .78; border-style: dashed; }
+.file-state { grid-column: 2 / 3; align-self: center; justify-self: end; color: var(--green); font: 700 10px Arial, sans-serif; letter-spacing: 1px; }
+.review-grid { display: grid; grid-template-columns: minmax(420px, 1.3fr) minmax(340px, 0.9fr); gap: 22px; max-width: 1200px; margin: 24px auto 0; }
 .review-preview-shell { position: relative; min-height: 520px; border: 1px solid var(--line); background: #eef1ed; }
 .review-grid iframe { width: 100%; height: 520px; border: 0; background: #eef1ed; }
 .document-preview-loader {

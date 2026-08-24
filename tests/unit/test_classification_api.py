@@ -153,3 +153,114 @@ def test_analyze_document_suggests_invoice_filename(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.json()["topic"] == "Invoice"
     assert response.json()["suggested_filename"] == "undated_Invoice_scan-001.pdf"
+
+
+def test_analyze_document_uses_cached_gemini_proposal(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (source / "scan-001.pdf").write_bytes(b"placeholder")
+    client = TestClient(main.app)
+
+    from pymupdf import open as open_pdf
+
+    pdf = open_pdf()
+    page = pdf.new_page()
+    page.insert_text((72, 72), "Invoice Amount Due VAT")
+    pdf.save(source / "scan-001.pdf")
+    pdf.close()
+
+    prepared = client.post("/api/documents/scan-001.pdf/prepare").json()
+    calls = {"count": 0}
+
+    def fake_gemini(text, filename, pdf_obj=None, layout=None):
+        calls["count"] += 1
+        base = main.analyze_text(text, filename)
+        return {
+            **base,
+            "category": "Invoice",
+            "language": "en",
+            "confidence": 0.99,
+            "date": "2026-08-24",
+            "summary": "Invoice due for payment.",
+            "suggested_filename": "invoice_cached.pdf",
+            "analysis_source": "gemini",
+            "signals": ["Gemini analyzed document content"],
+        }
+
+    monkeypatch.setattr(main, "analyze_with_gemini", fake_gemini)
+    first_response = client.post(
+        "/api/documents/scan-001.pdf/analyze",
+        params={"processing_id": prepared["processing_id"]},
+    )
+
+    assert first_response.status_code == 200
+    assert first_response.json()["suggested_filename"] == "invoice_cached.pdf"
+    assert calls["count"] == 1
+
+    second_prepared = client.post("/api/documents/scan-001.pdf/prepare").json()
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("Gemini should not be called again for a cached filename")
+
+    monkeypatch.setattr(main, "analyze_with_gemini", fail_if_called)
+    second_response = client.post(
+        "/api/documents/scan-001.pdf/analyze",
+        params={"processing_id": second_prepared["processing_id"]},
+    )
+
+    assert second_response.status_code == 200
+    assert second_response.json()["suggested_filename"] == "invoice_cached.pdf"
+
+
+def test_reorder_pages_updates_processing_order(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (source / "reorder.pdf").write_bytes(b"placeholder")
+    client = TestClient(main.app)
+
+    from pymupdf import open as open_pdf
+
+    pdf = open_pdf()
+    for text in ["First page", "Second page", "Third page"]:
+        page = pdf.new_page()
+        page.insert_text((72, 72), text)
+    pdf.save(source / "reorder.pdf")
+    pdf.close()
+
+    prepared = client.post("/api/documents/reorder.pdf/prepare").json()
+    response = client.post(
+        "/api/documents/reorder.pdf/reorder-pages",
+        json={"processing_id": prepared["processing_id"], "page_order": [3, 1, 2]},
+    )
+
+    assert response.status_code == 200
+    with main.fitz.open(main.TEMP_PATH / "processing" / prepared["processing_id"] / "original.pdf") as reordered:
+        pages = [page.get_text().strip() for page in reordered]
+    assert pages == ["Third page", "First page", "Second page"]
+
+
+def test_merge_documents_creates_single_output(monkeypatch, tmp_path):
+    main, source, destination = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    from pymupdf import open as open_pdf
+
+    for name, text in [("first.pdf", "Invoice first page"), ("second.pdf", "Invoice second page")]:
+        pdf = open_pdf()
+        page = pdf.new_page()
+        page.insert_text((72, 72), text)
+        pdf.save(source / name)
+        pdf.close()
+
+    response = client.post(
+        "/api/documents/merge",
+        json={
+            "documents": ["first.pdf", "second.pdf"],
+            "destinee": "Destinee A",
+            "output_filename": "merged-invoice.pdf",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "classified"
+    assert (destination / "Destinee A" / "merged-invoice.pdf").exists()
+    assert payload["filename"] == "merged-invoice.pdf"

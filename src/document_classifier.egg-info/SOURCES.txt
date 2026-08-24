@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+src/document_classifier.egg-info/PKG-INFO
+src/document_classifier.egg-info/SOURCES.txt
+src/document_classifier.egg-info/dependency_links.txt
+src/document_classifier.egg-info/requires.txt
+src/document_classifier.egg-info/top_level.txt
+src/storage/__init__.py
+src/storage/google_drive.py
+src/storage/local_nas.py

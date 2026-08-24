@@ -31,6 +31,7 @@ CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classif
 DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
 ANALYSIS_STATUS_PATH = Path(os.getenv("ANALYSIS_STATUS_PATH", "/data/config/analysis-status.json"))
 TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
+FRONTEND_DIR = Path("/app/frontend") if Path("/app/frontend").exists() else Path(__file__).resolve().parent.parent / "frontend"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_ENDPOINT = os.getenv(
     "GEMINI_ENDPOINT",
@@ -148,6 +149,32 @@ class SplitFinalizeRequest(BaseModel):
     outputs: List[SplitOutput] = Field(min_length=1, max_length=100)
 
 
+class MergeDocumentsRequest(BaseModel):
+    """Requests to combine multiple source PDFs into one routed output."""
+
+    documents: List[str] = Field(min_length=2, max_length=10)
+    destinee: str = Field(min_length=1, max_length=80)
+    output_filename: str = Field(min_length=1, max_length=180)
+
+    @field_validator("documents")
+    @classmethod
+    def validate_documents(cls, value: List[str]) -> List[str]:
+        cleaned = [item.strip() for item in value]
+        if any(not item for item in cleaned):
+            raise ValueError("Document names cannot be empty")
+        if len(set(item.casefold() for item in cleaned)) != len(cleaned):
+            raise ValueError("Document names must be unique")
+        return cleaned
+
+    @field_validator("output_filename")
+    @classmethod
+    def validate_output_filename(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not _FILENAME_PATTERN.fullmatch(cleaned):
+            raise ValueError("Output filename must be a single .pdf filename")
+        return cleaned
+
+
 app = FastAPI(title="Document Classifier API", version=os.getenv("APP_VERSION", "0.10.0"))
 app.add_middleware(
     CORSMiddleware,
@@ -161,7 +188,7 @@ app.add_middleware(
 @app.get("/index.html")
 def serve_index() -> Response:
     """Serve the handcrafted frontend with a cache-busting version stamp."""
-    index_path = Path("/app/frontend/index.html")
+    index_path = FRONTEND_DIR / "index.html"
     content = index_path.read_text(encoding="utf-8").replace("__APP_VERSION__", APP_VERSION)
     return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
@@ -188,9 +215,26 @@ def read_document_states() -> dict:
 
 def write_document_state(filename: str, status: str, **details: object) -> None:
     states = read_document_states()
-    states[filename] = {"status": status, **details}
+    existing = states.get(filename, {}) if isinstance(states.get(filename), dict) else {}
+    states[filename] = {**existing, "status": status, **details}
     DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
+
+
+def cached_analysis_result(filename: str, processing_path: Path) -> Optional[dict]:
+    states = read_document_states()
+    state = states.get(filename)
+    if not isinstance(state, dict):
+        return None
+    if state.get("sha256") != calculate_file_hash(processing_path):
+        return None
+    cached = {
+        key: value for key, value in state.items()
+        if key not in {"status", "sha256", "duplicate_of", "destinee", "destination_path", "archive_path", "processing_id", "reason", "dismissed_path"}
+    }
+    if not cached.get("suggested_filename"):
+        return None
+    return cached
 
 
 def normalize_relative_document_path(filename: str) -> Path:
@@ -406,6 +450,15 @@ def response_for(destinees: List[str]) -> ClassificationResponse:
         input_path=str(SOURCE_PATH),
         output_root=f"{DESTINATION_PATH}/",
     )
+
+
+def move_or_archive_document(document_path: Path) -> Path:
+    archived_file = relative_archive_path(document_path)
+    archived_file.parent.mkdir(parents=True, exist_ok=True)
+    if archived_file.exists():
+        raise HTTPException(status_code=409, detail=f"An archived document with this name already exists: {archived_file.name}")
+    shutil.move(str(document_path), archived_file)
+    return archived_file
 
 
 def ensure_destinee_directories(destinees: List[str]) -> None:
@@ -778,20 +831,25 @@ def prepare_document(filename: str) -> dict:
     try:
         processing_directory.mkdir(parents=True, exist_ok=False)
         shutil.copy2(document_path, processing_path)
-        with fitz.open(processing_path) as pdf:
-            pages = []
-            for page_number, page in enumerate(pdf):
-                page_text, ocr_used = extract_page_text(page)
-                pages.append(
-                    {"page": page_number + 1, "text": page_text[:2000], "ocr_used": ocr_used}
-                )
+        try:
+            with fitz.open(processing_path) as pdf:
+                pages = []
+                for page_number, page in enumerate(pdf):
+                    page_text, ocr_used = extract_page_text(page)
+                    pages.append(
+                        {"page": page_number + 1, "text": page_text[:2000], "ocr_used": ocr_used}
+                    )
+                page_count = len(pages)
+        except (OSError, ValueError, RuntimeError, fitz.FileDataError):
+            pages = [{"page": 1, "text": "", "ocr_used": False}]
+            page_count = 1
         write_document_state(
             filename,
             "in_review",
             processing_id=processing_id,
             sha256=calculate_file_hash(processing_path),
         )
-    except (OSError, fitz.FileDataError) as exc:
+    except OSError as exc:
         try:
             write_document_state(document_path.name, "failed", error="Unable to prepare PDF")
         except OSError:
@@ -806,7 +864,7 @@ def prepare_document(filename: str) -> dict:
         "source_path": relative_source_path.as_posix(),
         "source_directory": relative_source_path.parent.as_posix() if relative_source_path.parent != Path(".") else "root",
         "processing_path": str(processing_path),
-        "page_count": len(pages),
+        "page_count": page_count,
         "pages": pages,
         "ocr_used": any(page["ocr_used"] for page in pages),
         "status": "in_review",
@@ -821,6 +879,17 @@ def analyze_document(filename: str, processing_id: str) -> dict:
     if processing_path.parent.parent != processing_root or not processing_path.is_file():
         raise HTTPException(status_code=404, detail="Prepared document not found")
     try:
+        cached_result = cached_analysis_result(filename, processing_path)
+        if cached_result:
+            write_document_state(
+                filename,
+                "in_review",
+                processing_id=processing_id,
+                sha256=calculate_file_hash(processing_path),
+                **cached_result,
+            )
+            return {"status": "in_review", **cached_result}
+
         with fitz.open(processing_path) as pdf:
             text = "\n".join(extract_page_text(page)[0] for page in pdf)
             layout = extract_layout_metadata(pdf)
@@ -839,6 +908,70 @@ def analyze_document(filename: str, processing_id: str) -> dict:
     return {"status": "in_review", **result}
 
 
+@app.post("/api/documents/merge")
+def merge_documents(request: MergeDocumentsRequest) -> dict:
+    """Combine multiple source PDFs into a single classified output."""
+    configured_destinees = read_config()
+    matching_destinee = next(
+        (value for value in configured_destinees if value.casefold() == request.destinee.casefold()),
+        None,
+    )
+    if matching_destinee is None:
+        if configured_destinees:
+            raise HTTPException(status_code=400, detail="Destinee is not configured")
+        matching_destinee = request.destinee.strip()
+        ensure_destinee_directories([matching_destinee])
+
+    resolved_documents: List[tuple[str, Path]] = []
+    for filename in request.documents:
+        try:
+            resolved_documents.append((filename, resolve_source_document(filename)))
+        except HTTPException as exc:
+            raise HTTPException(status_code=404, detail=f"Document not found: {filename}") from exc
+
+    destination_directory = DESTINATION_PATH / matching_destinee
+    destination_file = destination_directory / request.output_filename
+    if destination_file.exists():
+        raise HTTPException(status_code=409, detail="A document with this name already exists")
+
+    merged_pdf = fitz.open()
+    try:
+        for _, document_path in resolved_documents:
+            with fitz.open(document_path) as source_pdf:
+                merged_pdf.insert_pdf(source_pdf)
+        destination_directory.mkdir(parents=True, exist_ok=True)
+        merged_pdf.save(destination_file)
+    except (OSError, fitz.FileDataError) as exc:
+        raise HTTPException(status_code=422, detail="Unable to merge PDF documents") from exc
+    finally:
+        merged_pdf.close()
+
+    try:
+        archived_files = [move_or_archive_document(document_path) for _, document_path in resolved_documents]
+        write_document_state(
+            request.output_filename,
+            "classified",
+            destinee=matching_destinee,
+            destination_path=str(destination_file),
+            archive_paths=[str(path) for path in archived_files],
+            source_documents=request.documents,
+            sha256=calculate_file_hash(destination_file),
+        )
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="Unable to archive merged documents") from exc
+
+    return {
+        "status": "classified",
+        "filename": request.output_filename,
+        "destinee": matching_destinee,
+        "destination_path": str(destination_file),
+        "source_documents": request.documents,
+        "archive_paths": [str(path) for path in archived_files],
+    }
+
+
 @app.post("/api/documents/{filename:path}/finalize")
 def finalize_document(filename: str, request: FinalizeRequest) -> dict:
     """Route a prepared PDF to a configured destinee without overwriting files."""
@@ -853,7 +986,10 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         None,
     )
     if matching_destinee is None:
-        raise HTTPException(status_code=400, detail="Destinee is not configured")
+        if configured_destinees:
+            raise HTTPException(status_code=400, detail="Destinee is not configured")
+        matching_destinee = request.destinee.strip()
+        ensure_destinee_directories([matching_destinee])
 
     processing_path = (TEMP_PATH / "processing" / request.processing_id / "original.pdf").resolve()
     processing_root = (TEMP_PATH / "processing").resolve()
@@ -899,4 +1035,4 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
     }
 
 
-app.mount("/", StaticFiles(directory="/app/frontend", html=True), name="frontend")
+app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

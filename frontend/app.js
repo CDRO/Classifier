@@ -12,6 +12,7 @@ const inboxStatus = document.querySelector("#inbox-status");
 const reviewPanel = document.querySelector("#review-panel");
 const reviewStatus = document.querySelector("#review-status");
 const reviewSummary = document.querySelector("#review-summary");
+const mergeSelectedButton = document.querySelector("#merge-selected-files");
 const analysisProvider = document.querySelector("#analysis-provider");
 const documentPreview = document.querySelector("#document-preview");
 const previewLoader = document.querySelector("#document-preview-loader");
@@ -52,6 +53,8 @@ let configuredDestinees = [];
 let splitParts = [];
 let inboxFiles = [];
 let historyDocuments = [];
+let mergeSelection = new Set();
+let shelvedFiles = new Set();
 
 function loadDestinees() {
   try {
@@ -190,6 +193,7 @@ function getVisibleInboxFiles() {
 
   const filtered = inboxFiles.filter((file) => {
     const source = formatSourcePath(file.name);
+    const isShelved = shelvedFiles.has(file.name);
     const statusText = (file.status || "received").toLowerCase();
     const duplicateText = String(file.duplicate_of || "").toLowerCase();
     const matchesSearch = !searchValue || [
@@ -198,10 +202,11 @@ function getVisibleInboxFiles() {
       source.basename,
       statusText,
       duplicateText,
+      isShelved ? "shelved" : "",
       file.status || "received"
     ].some((value) => String(value).toLowerCase().includes(searchValue));
     const matchesFolder = folderValue === "all" || source.directory === folderValue || (folderValue === "root" && source.directory === "root") || (folderValue === "/data/source" && source.directory === "root");
-    const matchesStatus = statusValue === "all" || (file.status || "received") === statusValue;
+    const matchesStatus = statusValue === "all" || (isShelved ? "shelved" : (file.status || "received")) === statusValue;
     const isDuplicate = Boolean(file.duplicate_of);
     const matchesDuplicate = duplicateValue === "all" || (duplicateValue === "duplicate" && isDuplicate) || (duplicateValue === "unique" && !isDuplicate);
     return matchesSearch && matchesFolder && matchesStatus && matchesDuplicate;
@@ -210,12 +215,30 @@ function getVisibleInboxFiles() {
   return sortDocuments(filtered, inboxSort?.value || "path");
 }
 
+function isShelvedDocument(filename) {
+  return shelvedFiles.has(filename);
+}
+
+function getAutoAdvanceCandidates(fileList = inboxFiles) {
+  return (fileList || []).filter((file) => !isShelvedDocument(file.name));
+}
+
+function getSelectedMergeDocuments() {
+  return [...mergeSelection].filter((filename) => inboxFiles.some((file) => file.name === filename));
+}
+
 function renderInbox(files) {
   const visibleFiles = getVisibleInboxFiles();
   inboxList.replaceChildren();
   inboxStatus.textContent = visibleFiles.length
     ? `${visibleFiles.length} completed PDF${visibleFiles.length === 1 ? "" : "s"} matching the current filter.`
     : "No completed PDFs match the current filter.";
+
+  if (mergeSelectedButton) {
+    const selectedCount = getSelectedMergeDocuments().length;
+    mergeSelectedButton.disabled = selectedCount < 2;
+    mergeSelectedButton.textContent = selectedCount > 1 ? `Combine ${selectedCount} selected` : "Combine selected";
+  }
 
   const sourceGroups = new Map();
   visibleFiles.forEach((file) => {
@@ -238,30 +261,51 @@ function renderInbox(files) {
     groupedFiles.forEach((file) => {
       const item = document.createElement("div");
       const isSelected = selectedDocument && selectedDocument.filename === file.name;
+      const isShelved = isShelvedDocument(file.name);
       const queuePosition = visibleFiles.findIndex((entry) => entry.name === file.name) + 1;
-      item.className = `inbox-item${isSelected ? " is-active" : ""}`;
+      const mergeChecked = mergeSelection.has(file.name);
+      item.className = `inbox-item${isSelected ? " is-active" : ""}${isShelved ? " is-shelved" : ""}`;
       item.setAttribute("aria-current", isSelected ? "true" : "false");
       item.setAttribute("data-queue-position", `${queuePosition || 0}`);
       const duplicateNote = file.duplicate_of ? ` · duplicate of ${escapeHtml(file.duplicate_of)}` : "";
-      const statusClass = file.duplicate_of ? "warning" : "good";
+      const statusClass = isShelved ? "neutral" : file.duplicate_of ? "warning" : "good";
       const source = formatSourcePath(file.name);
       const queueBadges = [
-        file.duplicate_of ? '<span class="queue-badge queue-badge-warning">Duplicate</span>' : '<span class="queue-badge queue-badge-safe">Unique</span>',
+        isShelved ? '<span class="queue-badge queue-badge-neutral">Shelved</span>' : (file.duplicate_of ? '<span class="queue-badge queue-badge-warning">Duplicate</span>' : '<span class="queue-badge queue-badge-safe">Unique</span>'),
         isSelected ? '<span class="queue-badge queue-badge-active">Current</span>' : `<span class="queue-badge queue-badge-neutral">#${queuePosition || 0}</span>`
       ].join("");
+      const statusLabel = isShelved ? "SHELVED" : (file.status || "received").replace("_", " ").toUpperCase();
       item.innerHTML = `
+        <div class="inbox-item-header">
+          <label class="merge-toggle" aria-label="Select ${escapeHtml(file.name)} for combining">
+            <input type="checkbox" data-merge-file="${escapeHtml(file.name)}" ${mergeChecked ? "checked" : ""}>
+            <span>Merge</span>
+          </label>
+          <div class="inbox-item-actions">
+            <div class="queue-badges">${queueBadges}</div>
+            <button class="shelve-button" type="button" aria-label="${isShelved ? "Unshelve" : "Shelve"} ${escapeHtml(file.name)}">${isShelved ? "Unshelve" : "Shelve"}</button>
+            <button class="dismiss-button" type="button" aria-label="Dismiss ${escapeHtml(file.name)}">Dismiss</button>
+          </div>
+        </div>
         <button class="inbox-document" type="button">
           <strong>${escapeHtml(source.basename)}</strong>
-          <small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · ready in n8n input${duplicateNote}</small>
+          <small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · ${isShelved ? "deferred for later analysis" : "ready in n8n input"}${duplicateNote}</small>
         </button>
-        <div class="inbox-item-actions">
-          <div class="queue-badges">${queueBadges}</div>
-          <button class="dismiss-button" type="button" aria-label="Dismiss ${escapeHtml(file.name)}">Dismiss</button>
-        </div>
-        <span class="file-state file-state-${statusClass}">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>
+        <span class="file-state file-state-${statusClass}">${escapeHtml(statusLabel)}</span>
       `;
       item.querySelector(".inbox-document").addEventListener("click", () => inspectDocument(file.name));
       item.querySelector(".dismiss-button").addEventListener("click", () => dismissDocument(file.name));
+      item.querySelector(".shelve-button").addEventListener("click", () => toggleShelveDocument(file.name));
+      const mergeCheckbox = item.querySelector("input[data-merge-file]");
+      mergeCheckbox.addEventListener("change", (event) => {
+        const targetFile = event.target.getAttribute("data-merge-file");
+        if (event.target.checked) {
+          mergeSelection.add(targetFile);
+        } else {
+          mergeSelection.delete(targetFile);
+        }
+        renderInbox(inboxFiles);
+      });
       group.append(item);
     });
 
@@ -280,6 +324,7 @@ async function dismissDocument(filename) {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || "Dismissal failed");
+    shelvedFiles.delete(filename);
     reviewPanel.hidden = true;
     document.querySelector(".workflow-layout").classList.remove("review-active");
     inboxStatus.textContent = `${result.filename} was dismissed and archived.`;
@@ -288,6 +333,17 @@ async function dismissDocument(filename) {
   } catch (dismissError) {
     inboxStatus.textContent = dismissError.message;
   }
+}
+
+function toggleShelveDocument(filename) {
+  if (shelvedFiles.has(filename)) {
+    shelvedFiles.delete(filename);
+    inboxStatus.textContent = `${filename} was unshelved and returned to the active queue.`;
+  } else {
+    shelvedFiles.add(filename);
+    inboxStatus.textContent = `${filename} was shelved for later analysis.`;
+  }
+  renderInbox(inboxFiles);
 }
 
 async function inspectDocument(filename) {
@@ -321,6 +377,7 @@ async function inspectDocument(filename) {
       blocked: Boolean(selectedDocument.duplicateOf)
     });
     reviewFilename.value = preparedDocument.original_name;
+    void prefetchQueuedAnalyses(filename);
     reviewSourcePath.textContent = selectedDocument.sourcePath.startsWith("/") ? `/data/source/${selectedDocument.sourcePath.replace(/^\//, "")}` : `/data/source/${selectedDocument.sourcePath}`;
     reviewOriginalFilename.textContent = preparedDocument.original_name;
     if (selectedDocument.duplicateOf) {
@@ -354,6 +411,15 @@ async function inspectDocument(filename) {
     const analysisResponse = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/analyze?processing_id=${encodeURIComponent(preparedDocument.processing_id)}`, { method: "POST" });
     if (!analysisResponse.ok) throw new Error("Content analysis failed");
     const analysis = await analysisResponse.json();
+    const suggestedDestinee = suggestBestDestinee(analysis, filename);
+    if (suggestedDestinee) {
+      reviewDestinee.value = suggestedDestinee;
+      reviewDestinee.dataset.suggested = "true";
+      finalizeStatus.textContent = `Suggested destinee: ${suggestedDestinee}.`;
+    } else {
+      reviewDestinee.value = "";
+      delete reviewDestinee.dataset.suggested;
+    }
     const party = analysis.party ? ` · ${analysis.party}` : "";
     const language = analysis.language && analysis.language !== "unknown" ? ` · ${analysis.language}` : "";
     const signals = analysis.signals?.length ? ` Signals: ${analysis.signals.join("; ")}.` : "";
@@ -510,11 +576,115 @@ function getQueueSummary(filename) {
   return `Queue: ${currentIndex + 1} / ${visibleFiles.length}`;
 }
 
+function normalizeSuggestionTokens(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function suggestBestDestinee(analysis, filename) {
+  if (!configuredDestinees.length) return "";
+
+  const textContext = [
+    filename,
+    analysis?.category || "",
+    analysis?.title || "",
+    analysis?.summary || "",
+    analysis?.party || "",
+    analysis?.suggested_filename || "",
+    analysis?.language || "",
+    analysis?.date || ""
+  ].join(" ");
+  const contentTokens = new Set(normalizeSuggestionTokens(textContext));
+  const scoredDestinees = configuredDestinees
+    .map((destinee) => {
+      const destineeTokens = normalizeSuggestionTokens(destinee);
+      if (!destineeTokens.length) return { destinee, score: 0 };
+
+      let score = 0;
+      const tokenHits = new Set();
+      destineeTokens.forEach((token) => {
+        if (contentTokens.has(token)) {
+          score += 6;
+          tokenHits.add(token);
+        }
+        const fileContainsToken = textContext.toLowerCase().includes(token.toLowerCase());
+        if (fileContainsToken) {
+          score += 2;
+        }
+      });
+
+      if (tokenHits.size && destineeTokens.length > 0) {
+        score += Math.min(tokenHits.size * 2, 10);
+      }
+
+      const contentWords = normalizeSuggestionTokens(textContext);
+      const directPhraseScore = destineeTokens.some((token) => contentWords.includes(token)) ? 3 : 0;
+      score += directPhraseScore;
+
+      if (filename.toLowerCase().includes(destinee.toLowerCase())) {
+        score += 8;
+      }
+
+      if (analysis?.category && destinee.toLowerCase().includes(analysis.category.toLowerCase())) {
+        score += 5;
+      }
+
+      return { destinee, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  if (!scoredDestinees.length) return "";
+  return scoredDestinees[0].score >= 6 ? scoredDestinees[0].destinee : "";
+}
+
 function getNextInboxFile(currentFilename, fileList = inboxFiles) {
-  if (!fileList.length) return null;
-  const currentIndex = fileList.findIndex((file) => file.name === currentFilename);
-  if (currentIndex === -1) return fileList[0] ?? null;
-  return fileList[currentIndex + 1] ?? fileList[0] ?? null;
+  const candidates = getAutoAdvanceCandidates(fileList);
+  if (!candidates.length) return null;
+  const currentIndex = candidates.findIndex((file) => file.name === currentFilename);
+  if (currentIndex === -1) return candidates[0] ?? null;
+  return candidates[currentIndex + 1] ?? candidates[0] ?? null;
+}
+
+function jumpToDestineeSelection() {
+  const reviewDestineeSection = reviewDestinee;
+  if (reviewDestineeSection && !reviewDestineeSection.disabled && !reviewPanel.hidden) {
+    reviewDestineeSection.scrollIntoView({ behavior: "smooth", block: "center" });
+    reviewDestineeSection.focus();
+    return;
+  }
+
+  const firstConfiguredDestinee = document.querySelector(".destinee-input");
+  if (firstConfiguredDestinee) {
+    firstConfiguredDestinee.scrollIntoView({ behavior: "smooth", block: "center" });
+    firstConfiguredDestinee.focus();
+    return;
+  }
+
+  const destineeHeading = document.querySelector("#destinee-title");
+  destineeHeading?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function prefetchQueuedAnalyses(currentFilename) {
+  const visibleFiles = getVisibleInboxFiles();
+  if (!visibleFiles.length) return;
+  const currentIndex = visibleFiles.findIndex((file) => file.name === currentFilename);
+  if (currentIndex === -1) return;
+  const queueCandidates = visibleFiles.slice(currentIndex + 1, currentIndex + 3);
+  for (const file of queueCandidates) {
+    try {
+      const prepareResponse = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(file.name)}/prepare`, { method: "POST" });
+      if (!prepareResponse.ok) continue;
+      const preparedDocument = await prepareResponse.json();
+      await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(file.name)}/analyze?processing_id=${encodeURIComponent(preparedDocument.processing_id)}`, { method: "POST" });
+    } catch {
+      // Ignore prefetch failures; they should not block review of the selected document.
+    }
+  }
 }
 
 function getExistingOutputConflict(destinee, outputFilename) {
@@ -853,6 +1023,44 @@ document.querySelector("#add-destinee").addEventListener("click", () => {
 });
 
 document.querySelector("#refresh-inbox").addEventListener("click", refreshInbox);
+mergeSelectedButton?.addEventListener("click", async () => {
+  const selectedFiles = getSelectedMergeDocuments();
+  if (selectedFiles.length < 2) {
+    inboxStatus.textContent = "Select at least two documents to combine.";
+    return;
+  }
+
+  const outputFilename = window.prompt("Combined output filename", `${selectedFiles[0].split("/").pop().replace(/\.pdf$/i, "")}-combined.pdf`);
+  if (outputFilename === null) return;
+
+  const trimmed = outputFilename.trim();
+  if (!trimmed || !trimmed.toLowerCase().endsWith(".pdf")) {
+    inboxStatus.textContent = "Use a valid .pdf filename for the merged file.";
+    return;
+  }
+
+  const destinee = window.prompt("Destinee for the combined document", configuredDestinees[0] || "");
+  if (destinee === null || !destinee.trim()) {
+    inboxStatus.textContent = "Choose a destinee before combining files.";
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documents: selectedFiles, destinee: destinee.trim(), output_filename: trimmed })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Combined document creation failed");
+    mergeSelection.clear();
+    inboxStatus.textContent = `${result.filename} was merged for ${result.destinee}.`;
+    await refreshInbox();
+    await refreshHistory();
+  } catch (mergeError) {
+    inboxStatus.textContent = mergeError.message;
+  }
+});
 document.querySelector("#refresh-history").addEventListener("click", refreshHistory);
 document.querySelector("#clear-inbox-filters").addEventListener("click", () => {
   inboxSearch.value = "";
@@ -880,12 +1088,17 @@ document.querySelector("#clear-history-filters").addEventListener("click", () =>
   element.addEventListener("change", () => renderHistory(historyDocuments));
 });
 reviewDestinee.addEventListener("change", () => {
+  if (reviewDestinee.dataset.suggested === "true" && reviewDestinee.value) {
+    finalizeStatus.textContent = `Suggested destinee: ${reviewDestinee.value}.`;
+  }
   if (!reviewDestinee.value) {
     finalizeButton.disabled = true;
     finalizeStatus.textContent = "";
+    delete reviewDestinee.dataset.suggested;
     return;
   }
 
+  delete reviewDestinee.dataset.suggested;
   updateFinalizeWarnings();
 });
 
@@ -906,6 +1119,18 @@ window.addEventListener("keydown", async (event) => {
     } else {
       openHelpMenu();
     }
+    return;
+  }
+
+  if ((event.key === "s" || event.key === "S") && !isTypingField && selectedDocument) {
+    event.preventDefault();
+    toggleShelveDocument(selectedDocument.filename);
+    return;
+  }
+
+  if ((event.key === "j" || event.key === "J" || event.key === "g" || event.key === "G") && !isTypingField) {
+    event.preventDefault();
+    jumpToDestineeSelection();
     return;
   }
 
