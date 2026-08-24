@@ -212,6 +212,10 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optiona
             )
             if response.status_code == 429:
                 retry_after = response.headers.get("retry-after")
+                try:
+                    retry_after = response.json().get("error", {}).get("details", [{}])[-1].get("retryDelay") or retry_after
+                except (IndexError, TypeError, ValueError, json.JSONDecodeError):
+                    pass
                 write_analysis_status(
                     False,
                     "Gemini quota or rate limit reached. Local analysis is active until Gemini is available again.",

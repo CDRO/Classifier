@@ -28,6 +28,7 @@ h1 { margin-bottom: 0; font-size: clamp(30px, 4vw, 48px); font-weight: 400; lett
 h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; }
 .status-pill { display: inline-flex; align-items: center; gap: 8px; padding: 10px 13px; border: 1px solid #cfe0d4; border-radius: 4px; background: var(--mint); color: var(--green); font: 700 12px Arial, sans-serif; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #2e9a5b; }
+.global-analysis-status { display: inline-block; margin: 20px 0 0; padding: 8px 11px; border: 1px solid var(--line); font: 700 11px Arial, sans-serif; }
 .hero-band { display: flex; justify-content: space-between; align-items: end; min-height: 270px; margin-top: 42px; padding: 34px 38px; background: var(--green); color: white; box-shadow: var(--shadow); }
 .hero-band .eyebrow { color: #b9e1c6; }
 .hero-band h2 { max-width: 570px; margin-bottom: 14px; font-size: clamp(32px, 5vw, 64px); line-height: .98; }

@@ -23,6 +23,7 @@ const historyStatus = document.querySelector("#history-status");
 const finalizeButton = document.querySelector("#finalize-document");
 const finalizeStatus = document.querySelector("#finalize-status");
 const appVersion = document.querySelector("#app-version");
+const globalAnalysisStatus = document.querySelector("#global-analysis-status");
 let selectedDocument = null;
 
 function loadDestinees() {
@@ -123,6 +124,7 @@ async function inspectDocument(filename) {
     analysisSummary.textContent = `${analysis.category} · ${analysis.date}${language}${party} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}`;
     analysisProvider.textContent = analysis.analysis_source === "gemini" ? "Analysis provider: Gemini" : "Analysis provider: Local fallback";
     analysisProvider.className = `analysis-provider ${analysis.analysis_source === "gemini" ? "provider-gemini" : "provider-local"}`;
+    await loadAnalysisProvider();
     reviewFilename.value = analysis.suggested_filename;
     pageText.replaceChildren();
     preparedDocument.pages.forEach((page) => {
@@ -135,6 +137,7 @@ async function inspectDocument(filename) {
     finalizeStatus.textContent = "";
     inboxStatus.textContent = `${preparedDocument.original_name} is ready for destinee review.`;
   } catch {
+    await loadAnalysisProvider();
     inboxStatus.textContent = "The document could not be loaded from the n8n input directory.";
   }
 }
@@ -193,17 +196,27 @@ async function loadAnalysisProvider() {
     const response = await fetch(`${API_BASE_URL}/api/analysis/status`);
     if (!response.ok) throw new Error("Provider status failed");
     const status = await response.json();
+    const cooldown = status.retry_after ? ` Retry in ${status.retry_after}.` : "";
     if (status.gemini_configured && status.available) {
       analysisProvider.textContent = "Analysis provider: Gemini available";
+      globalAnalysisStatus.textContent = "Gemini is available for document analysis.";
+      globalAnalysisStatus.className = "global-analysis-status provider-gemini";
       analysisProvider.className = "analysis-provider provider-gemini";
     } else if (status.gemini_configured && status.message) {
-      analysisProvider.textContent = "Analysis provider: Gemini temporarily unavailable; local fallback active";
+      analysisProvider.textContent = `Analysis provider: Gemini temporarily unavailable; local fallback active.${cooldown}`;
+      globalAnalysisStatus.textContent = `Gemini quota or availability warning. Local fallback is active.${cooldown}`;
+      globalAnalysisStatus.className = "global-analysis-status provider-warning";
       analysisProvider.className = "analysis-provider provider-warning";
     } else {
       analysisProvider.textContent = "Analysis provider: Local fallback";
+      globalAnalysisStatus.textContent = "Gemini is not configured. Local analysis is active.";
+      globalAnalysisStatus.className = "global-analysis-status provider-local";
       analysisProvider.className = "analysis-provider provider-local";
     }
-    if (status.message) analysisProvider.title = status.message;
+    if (status.message) {
+      analysisProvider.title = status.message;
+      globalAnalysisStatus.title = status.message;
+    }
   } catch {
     analysisProvider.textContent = "Analysis provider status unavailable";
     analysisProvider.className = "analysis-provider";
