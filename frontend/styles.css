@@ -44,7 +44,7 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .path-card small { margin-top: 7px; color: var(--muted); font: 13px Arial, sans-serif; }
 .workspace-panel, .folder-preview { padding: 30px; border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow); }
 .inbox-panel { margin-top: 20px; padding: 30px; border: 1px solid var(--line); background: #f1f5ef; }
-.workflow-layout { display: grid; grid-template-columns: minmax(280px, .85fr) minmax(420px, 1.15fr); align-items: start; gap: 20px; margin-top: 20px; }
+.workflow-layout { position: relative; left: 50%; display: grid; grid-template-columns: 280px minmax(0, 1100px); align-items: start; gap: 20px; width: min(1400px, calc(100vw - 32px)); margin: 20px 0 0; transform: translateX(-50%); }
 .workflow-layout .inbox-panel, .workflow-layout .review-panel { margin-top: 0; }
 .review-panel { margin-top: 20px; padding: 30px; border: 1px solid #c7dfcf; background: var(--panel); box-shadow: var(--shadow); }
 .workflow-layout .review-panel { position: sticky; top: 20px; }
@@ -101,13 +101,18 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .folder-item strong { display: block; font-size: 17px; font-weight: 400; }
 .folder-item small { display: block; margin-top: 7px; color: var(--muted); font: 11px Consolas, monospace; overflow-wrap: anywhere; }
 footer { margin-top: 24px; padding: 18px 0 0; color: var(--muted); border-top: 1px solid var(--line); font: 11px Arial, sans-serif; }
+@media (max-width: 1430px) {
+  .workflow-layout { left: auto; grid-template-columns: 1fr; width: auto; margin-top: 20px; transform: none; }
+  .workflow-layout .review-panel { position: static; }
+}
 @media (max-width: 700px) {
   .shell { padding: 22px 16px; }
   .topbar, .hero-band, .preview-heading { align-items: flex-start; flex-direction: column; }
   .status-pill { align-self: flex-start; }
   .hero-band { min-height: 300px; padding: 28px 24px; }
   .route-mark { margin-top: 22px; }
-  .path-grid, .folder-list, .review-grid, .workflow-layout { grid-template-columns: 1fr; }
+  .path-grid, .folder-list, .review-grid { grid-template-columns: 1fr; }
+  .workflow-layout { left: auto; grid-template-columns: 1fr; width: auto; margin-top: 20px; transform: none; }
   .workflow-layout .review-panel { position: static; }
   .workspace-panel, .inbox-panel, .folder-preview { padding: 22px 18px; }
   .panel-actions { align-items: stretch; flex-direction: column-reverse; }
