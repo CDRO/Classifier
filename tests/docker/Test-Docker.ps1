@@ -65,7 +65,7 @@ try {
     Assert-Equal $configResponse.output_root "/data/destination/" "Output path mismatch"
     Assert-Equal $configResponse.destinees.Count 3 "Default destinee count mismatch"
 
-    docker exec $container python -c "import pymupdf; pdf=pymupdf.open(); pdf.new_page(); pdf.save('/data/source/handoff.pdf')"
+    docker exec $container python -c "import pymupdf; pdf=pymupdf.open(); page=pdf.new_page(); page.insert_text((72,72), 'Invoice Amount Due VAT'); pdf.save('/data/source/handoff.pdf')"
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create valid PDF fixture in the test container."
     }
@@ -101,6 +101,11 @@ try {
     Assert-Equal $prepared.original_name "handoff.pdf" "Prepared filename mismatch"
     Assert-Equal $prepared.page_count 1 "Prepared page count mismatch"
     Assert-Equal $prepared.status "in_review" "Prepared document status mismatch"
+    $analysis = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/analyze?processing_id=$($prepared.processing_id)" -Method Post
+    Assert-Equal $analysis.topic "Invoice" "Content topic mismatch"
+    if ($analysis.suggested_filename -notmatch '^undated_Invoice_handoff\.pdf$') {
+        throw "Unexpected suggested filename: $($analysis.suggested_filename)"
+    }
     if (-not (Test-Path (Join-Path $tempPath "processing\$($prepared.processing_id)\original.pdf"))) {
         throw "Prepared PDF was not written to processing storage."
     }

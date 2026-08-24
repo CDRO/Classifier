@@ -129,3 +129,27 @@ def test_finalize_rejects_unsafe_output_filename(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 422
+
+
+def test_analyze_document_suggests_invoice_filename(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (source / "scan-001.pdf").write_bytes(b"placeholder")
+    client = TestClient(main.app)
+
+    from pymupdf import open as open_pdf
+
+    pdf = open_pdf()
+    page = pdf.new_page()
+    page.insert_text((72, 72), "Invoice Amount Due VAT")
+    pdf.save(source / "scan-001.pdf")
+    pdf.close()
+    prepared = client.post("/api/documents/scan-001.pdf/prepare").json()
+
+    response = client.post(
+        "/api/documents/scan-001.pdf/analyze",
+        params={"processing_id": prepared["processing_id"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["topic"] == "Invoice"
+    assert response.json()["suggested_filename"] == "undated_Invoice_scan-001.pdf"

@@ -13,6 +13,7 @@ const reviewPanel = document.querySelector("#review-panel");
 const reviewStatus = document.querySelector("#review-status");
 const documentPreview = document.querySelector("#document-preview");
 const pageSummary = document.querySelector("#page-summary");
+const analysisSummary = document.querySelector("#analysis-summary");
 const reviewDestinee = document.querySelector("#review-destinee");
 const reviewFilename = document.querySelector("#review-filename");
 const pageText = document.querySelector("#page-text");
@@ -90,6 +91,11 @@ async function inspectDocument(filename) {
     reviewFilename.value = preparedDocument.original_name;
     documentPreview.src = `${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/file`;
     pageSummary.textContent = `${preparedDocument.page_count} page${preparedDocument.page_count === 1 ? "" : "s"} prepared for review.`;
+    const analysisResponse = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/analyze?processing_id=${encodeURIComponent(preparedDocument.processing_id)}`, { method: "POST" });
+    if (!analysisResponse.ok) throw new Error("Content analysis failed");
+    const analysis = await analysisResponse.json();
+    analysisSummary.textContent = `${analysis.topic} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}`;
+    reviewFilename.value = analysis.suggested_filename;
     pageText.replaceChildren();
     preparedDocument.pages.forEach((page) => {
       const block = document.createElement("article");

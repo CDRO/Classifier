@@ -202,6 +202,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Scan n8n input and inspect individual documents through the API
 - [x] Run document-inbox and inspection checks in a disposable Docker container
 - [x] Prepare selected PDFs and display review metadata in the native UI
+- [x] Analyze PDF text locally and suggest a descriptive output filename
 - [x] Finalize a reviewed PDF into its configured destinee folder
 - [x] Rename the classified output while preserving the original archive filename
 - [x] Persist document lifecycle states from receipt through classification

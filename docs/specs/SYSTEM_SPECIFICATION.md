@@ -196,6 +196,7 @@ Docker & Docker Compose
 - `GET /api/documents/{filename}` - Inspect one completed PDF from the n8n input directory
 - `GET /api/documents/{filename}/file` - Serve one source PDF for browser review
 - `POST /api/documents/{filename}/prepare` - Copy and inspect a PDF in processing storage
+- `POST /api/documents/{filename}/analyze` - Extract text, detect a first-pass topic, and suggest a filename
 - `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee with an optional output filename
 - `GET /api/documents/history` - Return persisted document lifecycle history
 

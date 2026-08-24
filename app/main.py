@@ -6,7 +6,7 @@ import re
 import shutil
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 from urllib.parse import quote
 
 import pymupdf as fitz
@@ -26,6 +26,14 @@ TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
 
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
 _FILENAME_PATTERN = re.compile(r"^[^/\\\x00]+\.pdf$", re.IGNORECASE)
+_DATE_PATTERN = re.compile(r"(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2}")
+_TOPIC_KEYWORDS: Dict[str, List[str]] = {
+    "Invoice": ["invoice", "rechnung", "amount due", "vat", "mwst"],
+    "Receipt": ["receipt", "quittung", "kassenbon", "total"],
+    "Contract": ["contract", "vertrag", "agreement", "parties"],
+    "Insurance": ["insurance", "versicherung", "policy number", "claim"],
+    "Tax": ["tax", "steuer", "finanzamt", "tax return"],
+}
 
 
 class ClassificationConfig(BaseModel):
@@ -107,6 +115,29 @@ def write_document_state(filename: str, status: str, **details: object) -> None:
     states[filename] = {"status": status, **details}
     DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
+
+
+def analyze_text(text: str, filename: str) -> dict:
+    normalized_text = text.casefold()
+    scores = {
+        topic: sum(normalized_text.count(keyword.casefold()) for keyword in keywords)
+        for topic, keywords in _TOPIC_KEYWORDS.items()
+    }
+    topic = max(scores, key=scores.get) if max(scores.values(), default=0) else "Document"
+    score = scores.get(topic, 0)
+    confidence = min(0.95, 0.45 + (score * 0.1)) if score else 0.25
+    date_match = _DATE_PATTERN.search(text)
+    date = date_match.group(0).replace("/", "-").replace(".", "-") if date_match else "undated"
+    source_stem = Path(filename).stem
+    safe_stem = re.sub(r"[^A-Za-z0-9]+", "-", source_stem).strip("-") or "document"
+    suggested_filename = f"{date}_{topic}_{safe_stem}.pdf"
+    summary = " ".join(text.split())[:240] or "No readable text was extracted from this PDF."
+    return {
+        "topic": topic,
+        "confidence": round(confidence, 2),
+        "summary": summary,
+        "suggested_filename": suggested_filename,
+    }
 
 
 def response_for(destinees: List[str]) -> ClassificationResponse:
@@ -271,6 +302,24 @@ def prepare_document(filename: str) -> dict:
         "pages": pages,
         "status": "in_review",
     }
+
+
+@app.post("/api/documents/{filename}/analyze")
+def analyze_document(filename: str, processing_id: str) -> dict:
+    """Analyze extracted PDF text and suggest a descriptive output filename."""
+    processing_path = (TEMP_PATH / "processing" / processing_id / "original.pdf").resolve()
+    processing_root = (TEMP_PATH / "processing").resolve()
+    if processing_path.parent.parent != processing_root or not processing_path.is_file():
+        raise HTTPException(status_code=404, detail="Prepared document not found")
+    try:
+        with fitz.open(processing_path) as pdf:
+            text = "\n".join(page.get_text() for page in pdf)
+    except (OSError, fitz.FileDataError) as exc:
+        write_document_state(filename, "failed", error="Unable to analyze PDF")
+        raise HTTPException(status_code=422, detail="Unable to analyze PDF") from exc
+    result = analyze_text(text, filename)
+    write_document_state(filename, "in_review", processing_id=processing_id, **result)
+    return {"status": "in_review", **result}
 
 
 @app.post("/api/documents/{filename}/finalize")
