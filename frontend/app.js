@@ -25,10 +25,14 @@ const finalizeStatus = document.querySelector("#finalize-status");
 const splitBoundaries = document.querySelector("#split-boundaries");
 const splitStatus = document.querySelector("#split-status");
 const applySplitButton = document.querySelector("#apply-split");
+const splitOutputs = document.querySelector("#split-outputs");
+const finalizeSplitButton = document.querySelector("#finalize-split");
 const appVersion = document.querySelector("#app-version");
 const appRevision = document.querySelector("#app-revision");
 const globalAnalysisStatus = document.querySelector("#global-analysis-status");
 let selectedDocument = null;
+let configuredDestinees = [];
+let splitParts = [];
 
 function loadDestinees() {
   try {
@@ -125,6 +129,7 @@ async function inspectDocument(filename) {
     const configResponse = await fetch(`${API_BASE_URL}/api/classification/config`);
     if (!configResponse.ok) throw new Error("Configuration lookup failed");
     const config = await configResponse.json();
+    configuredDestinees = config.destinees;
     reviewDestinee.replaceChildren();
     const placeholder = document.createElement("option");
     placeholder.value = "";
@@ -192,9 +197,49 @@ applySplitButton.addEventListener("click", async () => {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || "Split failed");
+    splitParts = result.parts;
+    splitOutputs.replaceChildren();
+    splitOutputs.hidden = false;
+    finalizeSplitButton.hidden = false;
+    result.parts.forEach((part) => {
+      const row = document.createElement("div");
+      row.className = "split-output-row";
+      row.dataset.part = part.part;
+      const filename = part.path.split(/[\\/]/).pop();
+      row.innerHTML = `<strong>Part ${part.part} · pages ${part.start_page}-${part.end_page}</strong><input class="split-filename" type="text" value="${escapeHtml(filename)}" maxlength="180"><select class="split-destinee" required><option value="" selected disabled>Choose a destinee</option>${configuredDestinees.map((destinee) => `<option value="${escapeHtml(destinee)}">${escapeHtml(destinee)}</option>`).join("")}</select>`;
+      splitOutputs.append(row);
+    });
     splitStatus.textContent = `${result.part_count} PDF part${result.part_count === 1 ? "" : "s"} prepared. The original remains unchanged.`;
   } catch (splitError) {
     splitStatus.textContent = splitError.message;
+  }
+});
+
+finalizeSplitButton.addEventListener("click", async () => {
+  if (!selectedDocument || !splitParts.length) return;
+  const outputs = [...splitOutputs.querySelectorAll(".split-output-row")].map((row) => ({
+    part: Number(row.dataset.part),
+    output_filename: row.querySelector(".split-filename").value.trim(),
+    destinee: row.querySelector(".split-destinee").value
+  }));
+  if (outputs.some((output) => !output.output_filename || !output.destinee)) {
+    splitStatus.textContent = "Choose a destinee and filename for every split part.";
+    return;
+  }
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(selectedDocument.filename)}/finalize-split`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ processing_id: selectedDocument.processingId, outputs })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Split finalization failed");
+    splitStatus.textContent = `${result.outputs.length} split outputs finalized.`;
+    finalizeSplitButton.hidden = true;
+    await refreshInbox();
+    await refreshHistory();
+  } catch (splitFinalizeError) {
+    splitStatus.textContent = splitFinalizeError.message;
   }
 });
 

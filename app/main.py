@@ -122,6 +122,29 @@ class SplitRequest(BaseModel):
     split_pages: List[int] = Field(default_factory=list, max_length=100)
 
 
+class SplitOutput(BaseModel):
+    """Filename and explicit destinee for one split PDF part."""
+
+    part: int = Field(ge=1)
+    destinee: str = Field(min_length=1, max_length=80)
+    output_filename: str = Field(min_length=1, max_length=180)
+
+    @field_validator("output_filename")
+    @classmethod
+    def validate_output_filename(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not _FILENAME_PATTERN.fullmatch(cleaned):
+            raise ValueError("Output filename must be a single .pdf filename")
+        return cleaned
+
+
+class SplitFinalizeRequest(BaseModel):
+    """Finalization choices for all generated split parts."""
+
+    processing_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-f0-9]+$")
+    outputs: List[SplitOutput] = Field(min_length=1, max_length=100)
+
+
 app = FastAPI(title="Document Classifier API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -537,6 +560,59 @@ def split_document(filename: str, request: SplitRequest) -> dict:
     except (OSError, fitz.FileDataError) as exc:
         raise HTTPException(status_code=422, detail="Unable to split PDF") from exc
     return {"processing_id": request.processing_id, "part_count": len(parts), "parts": parts}
+
+
+@app.post("/api/documents/{filename}/finalize-split")
+def finalize_split_document(filename: str, request: SplitFinalizeRequest) -> dict:
+    """Finalize every split part, then archive the source once."""
+    document_path = (SOURCE_PATH / filename).resolve()
+    if document_path.parent != SOURCE_PATH.resolve() or not document_path.is_file():
+        raise HTTPException(status_code=404, detail="Document not found")
+    processing_path = prepared_file(request.processing_id)
+    configured_destinees = read_config()
+    if len({output.part for output in request.outputs}) != len(request.outputs):
+        raise HTTPException(status_code=400, detail="Each split part must be listed once")
+    for output in request.outputs:
+        if output.destinee.casefold() not in {value.casefold() for value in configured_destinees}:
+            raise HTTPException(status_code=400, detail="Destinee is not configured")
+    try:
+        generated_parts = sorted(processing_path.parent.glob(f"{Path(filename).stem}_part_*.pdf"))
+        if len(generated_parts) != len(request.outputs):
+            raise HTTPException(status_code=422, detail="Split outputs do not match prepared parts")
+        destinations = []
+        for output in request.outputs:
+            matching_destinee = next(value for value in configured_destinees if value.casefold() == output.destinee.casefold())
+            destination_file = DESTINATION_PATH / matching_destinee / output.output_filename
+            if destination_file.exists():
+                raise HTTPException(status_code=409, detail="A split output already exists")
+            destinations.append((output, destination_file))
+        archived_file = ARCHIVE_PATH / document_path.name
+        if archived_file.exists():
+            raise HTTPException(status_code=409, detail="An archived document with this name already exists")
+        created_files = []
+        for generated_part, (_, destination_file) in zip(generated_parts, destinations):
+            destination_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(generated_part, destination_file)
+            created_files.append(destination_file)
+        ARCHIVE_PATH.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(document_path), archived_file)
+        write_document_state(
+            filename,
+            "classified",
+            processing_id=request.processing_id,
+            split=True,
+            outputs=[str(path) for path in created_files],
+            archive_path=str(archived_file),
+            sha256=calculate_file_hash(archived_file),
+        )
+        shutil.rmtree(processing_path.parent, ignore_errors=True)
+    except HTTPException:
+        raise
+    except OSError as exc:
+        for created_file in locals().get("created_files", []):
+            created_file.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Unable to finalize split document") from exc
+    return {"status": "classified", "filename": filename, "outputs": [str(path) for path in created_files], "archive_path": str(archived_file)}
 
 
 class DismissRequest(BaseModel):

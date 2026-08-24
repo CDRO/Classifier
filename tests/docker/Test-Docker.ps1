@@ -153,14 +153,16 @@ try {
 
     $finalizePayload = @{
         processing_id = $prepared.processing_id
-        destinee = "Shared"
-        output_filename = "renamed-handoff.pdf"
-    } | ConvertTo-Json
-    $finalized = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/finalize" -Method Post `
+        outputs = @(
+            @{ part = 1; destinee = "Destinee A"; output_filename = "first-part.pdf" },
+            @{ part = 2; destinee = "Shared"; output_filename = "second-part.pdf" }
+        )
+    } | ConvertTo-Json -Depth 4
+    $finalized = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/finalize-split" -Method Post `
         -ContentType "application/json" -Body $finalizePayload
     Assert-Equal $finalized.status "classified" "Finalization status mismatch"
-    Assert-Equal $finalized.destinee "Shared" "Finalization destinee mismatch"
-    if (-not (Test-Path (Join-Path $destinationPath "Shared\renamed-handoff.pdf"))) {
+    Assert-Equal $finalized.outputs.Count 2 "Split finalization output count mismatch"
+    if (-not (Test-Path (Join-Path $destinationPath "Destinee A\first-part.pdf")) -or -not (Test-Path (Join-Path $destinationPath "Shared\second-part.pdf"))) {
         throw "Finalized PDF was not written to the destinee folder."
     }
     if (Test-Path (Join-Path $sourcePath "handoff.pdf")) {
@@ -177,7 +179,7 @@ try {
     $classifiedState = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get
     Assert-Equal $classifiedState.status "classified" "Final document status mismatch"
     Assert-Equal $classifiedState.archive_path "/data/archive/handoff.pdf" "Archive path mismatch"
-    Assert-Equal $classifiedState.destination_path "/data/destination/Shared/renamed-handoff.pdf" "Renamed destination path mismatch"
+    if (-not $classifiedState.split) { throw "Split finalization state was not recorded." }
 
     docker exec $container sh -c "cp /data/archive/handoff.pdf /data/source/dismissed.pdf"
     if ($LASTEXITCODE -ne 0) {

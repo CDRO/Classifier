@@ -202,6 +202,7 @@ Docker & Docker Compose
 - `POST /api/documents/{filename}/analyze` - Extract content, detect language/topic, and suggest a filename in the document language
 - `POST /api/documents/{filename}/rotate` - Rotate one page in the prepared PDF
 - `POST /api/documents/{filename}/split` - Create numbered PDF parts from selected page boundaries
+- `POST /api/documents/{filename}/finalize-split` - Finalize all split parts with independent filenames and destinees
 - `GET /api/processing/{processing_id}/file` - Serve the current prepared PDF for review
 - Analysis results include `language` and explainable `signals` for local fallback decisions.
 - `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee with an optional output filename
@@ -214,7 +215,7 @@ Docker & Docker Compose
 
 **Local OCR:** OCR is activated per page only when native PDF text is empty. The default languages are English and German (`OCR_LANGUAGES=eng+deu`), and the review UI marks OCR-processed pages.
 
-**Split preview:** Selected boundaries create numbered parts in the processing workspace. The source PDF remains unchanged. Multi-output finalization, including independent filenames and destinees per part, is the next extension.
+**Split workflow:** Selected boundaries create numbered parts in the processing workspace. Users assign an independent filename and destinee to each part. Multi-output finalization writes all outputs, archives the source once, and removes the processing workspace only after every output succeeds.
 
 **Gemini availability:** A `429` quota/rate-limit response or another Gemini request failure is recorded in the mounted analysis-status file. The UI then warns that Gemini is temporarily unavailable and local fallback is active. A later valid Gemini response marks the provider available again and clears the warning.
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails

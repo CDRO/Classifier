@@ -101,6 +101,10 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .split-boundaries { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .split-boundary { padding: 8px 10px; border: 1px solid var(--line); color: var(--muted); font: 12px Arial, sans-serif; }
 .split-boundary input { margin-right: 5px; }
+.split-outputs { display: grid; gap: 10px; margin-top: 14px; }
+.split-output-row { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--line); background: #fbfcfa; }
+.split-output-row strong { font: 700 11px Arial, sans-serif; text-transform: uppercase; }
+.split-output-row input, .split-output-row select { min-width: 0; padding: 9px; border: 1px solid var(--line); background: white; }
 .history-list { display: grid; gap: 8px; }
 .history-item { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 16px; border-bottom: 1px solid var(--line); }
 .history-item strong, .history-item small { display: block; }
@@ -131,6 +135,7 @@ footer { margin-top: 24px; padding: 18px 0 0; color: var(--muted); border-top: 1
   .path-grid, .folder-list, .review-grid { grid-template-columns: 1fr; }
   .workflow-layout { left: auto; grid-template-columns: 1fr; width: auto; margin-top: 20px; transform: none; }
   .workflow-layout .review-panel { position: static; }
+  .split-output-row { grid-template-columns: 1fr; }
   .workspace-panel, .inbox-panel, .folder-preview { padding: 22px 18px; }
   .panel-actions { align-items: stretch; flex-direction: column-reverse; }
   .button { justify-content: center; }
