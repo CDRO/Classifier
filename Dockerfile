@@ -3,9 +3,11 @@ FROM python:3.12-alpine
 WORKDIR /app
 
 COPY frontend/ ./frontend/
+COPY app/ ./app/
 
 RUN mkdir -p /data/source /data/destination
+RUN pip install --no-cache-dir fastapi uvicorn
 
 EXPOSE 3000
 
-CMD ["python", "-m", "http.server", "3000", "--directory", "/app/frontend"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3000"]

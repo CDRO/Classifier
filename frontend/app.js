@@ -2,6 +2,7 @@ const STORAGE_KEY = "classifier.destinees";
 const DEFAULT_DESTINEES = ["Destinee A", "Destinee B", "Destinee C"];
 const SOURCE_PATH = window.CLASSIFIER_CONFIG?.sourcePath || "/data/source";
 const DESTINATION_PATH = window.CLASSIFIER_CONFIG?.destinationPath || "/data/destination";
+const API_BASE_URL = window.CLASSIFIER_CONFIG?.apiBaseUrl || "";
 const list = document.querySelector("#destinee-list");
 const folderList = document.querySelector("#folder-list");
 const count = document.querySelector("#count");
@@ -56,7 +57,7 @@ document.querySelector("#add-destinee").addEventListener("click", () => {
   list.lastElementChild.querySelector("input").focus();
 });
 
-document.querySelector("#destinee-form").addEventListener("submit", (event) => {
+document.querySelector("#destinee-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const destinees = readRows();
   const normalized = destinees.map((value) => value.toLocaleLowerCase());
@@ -68,12 +69,38 @@ document.querySelector("#destinee-form").addEventListener("submit", (event) => {
     error.textContent = "Destinee names must be unique.";
     return;
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(destinees));
-  error.textContent = "Saved locally. The API will persist this configuration in the next slice.";
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/classification/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ destinees })
+    });
+    if (!response.ok) throw new Error("API request failed");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(destinees));
+    error.textContent = "Configuration saved.";
+  } catch {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(destinees));
+    error.textContent = "Saved locally. The API is not reachable yet.";
+  }
   render(destinees);
 });
 
-render(loadDestinees());
+async function initialize() {
+  let destinees = loadDestinees();
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/classification/config`);
+    if (response.ok) {
+      const config = await response.json();
+      destinees = config.destinees;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(destinees));
+    }
+  } catch {
+    // Static-only mode uses the local fallback until the API is running.
+  }
+  render(destinees);
+}
+
+initialize();
 
 document.querySelector("[data-source-path]").textContent = SOURCE_PATH;
 document.querySelector("[data-destination-path]").textContent = `${DESTINATION_PATH}/`;
