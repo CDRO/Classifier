@@ -65,7 +65,10 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .remove-button:hover { color: #a34636; }
 .form-error { min-height: 20px; color: #a34636; font: 13px Arial, sans-serif; }
 .inbox-status { margin: 22px 0 14px; color: var(--muted); font: 13px Arial, sans-serif; }
-.inbox-list { display: grid; gap: 8px; }
+.inbox-list { display: grid; gap: 12px; }
+.source-group { display: grid; gap: 8px; }
+.source-group-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); background: #edf2ee; color: var(--muted); font: 700 11px Arial, sans-serif; letter-spacing: .8px; text-transform: uppercase; }
+.source-group-count { color: var(--green); }
 .inbox-item { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 16px; border: 1px solid var(--line); background: white; }
 .inbox-item strong, .inbox-item small { display: block; }
 .inbox-item strong { font-size: 16px; font-weight: 400; overflow-wrap: anywhere; }

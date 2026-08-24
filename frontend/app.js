@@ -101,15 +101,37 @@ function renderInbox(files) {
   inboxStatus.textContent = files.length
     ? `${files.length} completed PDF${files.length === 1 ? "" : "s"} waiting for classification.`
     : "No completed PDFs are waiting for classification.";
+
+  const sourceGroups = new Map();
   files.forEach((file) => {
-    const item = document.createElement("div");
-    item.className = "inbox-item";
-    const duplicateNote = file.duplicate_of ? ` · duplicate of ${escapeHtml(file.duplicate_of)}` : "";
     const source = formatSourcePath(file.name);
-    item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(source.basename)}</strong><small>Source: ${escapeHtml(source.fullPath)} · ${formatBytes(file.size)} · ready in n8n input${duplicateNote}</small></button><button class="dismiss-button" type="button" aria-label="Dismiss ${escapeHtml(file.name)}">Dismiss</button><span class="file-state">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>`;
-    item.querySelector(".inbox-document").addEventListener("click", () => inspectDocument(file.name));
-    item.querySelector(".dismiss-button").addEventListener("click", () => dismissDocument(file.name));
-    inboxList.append(item);
+    const directory = source.directory === "root" ? "/data/source" : `/data/source/${source.directory}`;
+    if (!sourceGroups.has(directory)) {
+      sourceGroups.set(directory, []);
+    }
+    sourceGroups.get(directory).push(file);
+  });
+
+  [...sourceGroups.entries()].sort(([left], [right]) => left.localeCompare(right)).forEach(([directory, groupedFiles]) => {
+    const group = document.createElement("div");
+    group.className = "source-group";
+    const label = document.createElement("div");
+    label.className = "source-group-header";
+    label.innerHTML = `<span>${escapeHtml(directory)}</span><span class="source-group-count">${groupedFiles.length}</span>`;
+    group.append(label);
+
+    groupedFiles.forEach((file) => {
+      const item = document.createElement("div");
+      item.className = "inbox-item";
+      const duplicateNote = file.duplicate_of ? ` · duplicate of ${escapeHtml(file.duplicate_of)}` : "";
+      const source = formatSourcePath(file.name);
+      item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(source.basename)}</strong><small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · ready in n8n input${duplicateNote}</small></button><button class="dismiss-button" type="button" aria-label="Dismiss ${escapeHtml(file.name)}">Dismiss</button><span class="file-state">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>`;
+      item.querySelector(".inbox-document").addEventListener("click", () => inspectDocument(file.name));
+      item.querySelector(".dismiss-button").addEventListener("click", () => dismissDocument(file.name));
+      group.append(item);
+    });
+
+    inboxList.append(group);
   });
 }
 
