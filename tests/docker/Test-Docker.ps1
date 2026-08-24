@@ -108,12 +108,13 @@ try {
     $finalizePayload = @{
         processing_id = $prepared.processing_id
         destinee = "Shared"
+        output_filename = "renamed-handoff.pdf"
     } | ConvertTo-Json
     $finalized = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/finalize" -Method Post `
         -ContentType "application/json" -Body $finalizePayload
     Assert-Equal $finalized.status "classified" "Finalization status mismatch"
     Assert-Equal $finalized.destinee "Shared" "Finalization destinee mismatch"
-    if (-not (Test-Path (Join-Path $destinationPath "Shared\handoff.pdf"))) {
+    if (-not (Test-Path (Join-Path $destinationPath "Shared\renamed-handoff.pdf"))) {
         throw "Finalized PDF was not written to the destinee folder."
     }
     if (Test-Path (Join-Path $sourcePath "handoff.pdf")) {
@@ -130,6 +131,7 @@ try {
     $classifiedState = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get
     Assert-Equal $classifiedState.status "classified" "Final document status mismatch"
     Assert-Equal $classifiedState.archive_path "/data/archive/handoff.pdf" "Archive path mismatch"
+    Assert-Equal $classifiedState.destination_path "/data/destination/Shared/renamed-handoff.pdf" "Renamed destination path mismatch"
 
     try {
         Invoke-RestMethod -Uri "$baseUrl/api/documents/..%2Fincomplete.pdf" -Method Get | Out-Null

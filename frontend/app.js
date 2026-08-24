@@ -14,6 +14,7 @@ const reviewStatus = document.querySelector("#review-status");
 const documentPreview = document.querySelector("#document-preview");
 const pageSummary = document.querySelector("#page-summary");
 const reviewDestinee = document.querySelector("#review-destinee");
+const reviewFilename = document.querySelector("#review-filename");
 const pageText = document.querySelector("#page-text");
 const historyList = document.querySelector("#history-list");
 const historyStatus = document.querySelector("#history-status");
@@ -86,6 +87,7 @@ async function inspectDocument(filename) {
     selectedDocument = { filename, processingId: preparedDocument.processing_id };
     reviewPanel.hidden = false;
     reviewStatus.textContent = `${preparedDocument.original_name} · ${preparedDocument.status.replace("_", " ")}`;
+    reviewFilename.value = preparedDocument.original_name;
     documentPreview.src = `${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/file`;
     pageSummary.textContent = `${preparedDocument.page_count} page${preparedDocument.page_count === 1 ? "" : "s"} prepared for review.`;
     pageText.replaceChildren();
@@ -121,7 +123,11 @@ finalizeButton.addEventListener("click", async () => {
     const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(selectedDocument.filename)}/finalize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ processing_id: selectedDocument.processingId, destinee: reviewDestinee.value })
+      body: JSON.stringify({
+        processing_id: selectedDocument.processingId,
+        destinee: reviewDestinee.value,
+        output_filename: reviewFilename.value.trim()
+      })
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || "Finalization failed");

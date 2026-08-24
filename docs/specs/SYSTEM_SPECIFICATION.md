@@ -196,10 +196,10 @@ Docker & Docker Compose
 - `GET /api/documents/{filename}` - Inspect one completed PDF from the n8n input directory
 - `GET /api/documents/{filename}/file` - Serve one source PDF for browser review
 - `POST /api/documents/{filename}/prepare` - Copy and inspect a PDF in processing storage
-- `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee
+- `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee with an optional output filename
 - `GET /api/documents/history` - Return persisted document lifecycle history
 
-**Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration. Finalization writes the classified copy, moves the original out of `/data/source` into `/data/archive/` so it no longer appears in the n8n inbox, and removes the temporary processing workspace.
+**Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration. Finalization writes the classified copy, optionally using a reviewed `.pdf` filename, moves the original with its source name out of `/data/source` into `/data/archive/` so it no longer appears in the n8n inbox, and removes the temporary processing workspace.
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails
 - `DELETE /api/document/{doc_id}` - Remove document from processing queue
 

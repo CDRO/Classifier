@@ -6,7 +6,7 @@ import re
 import shutil
 import uuid
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from urllib.parse import quote
 
 import pymupdf as fitz
@@ -25,6 +25,7 @@ DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents
 TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
 
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
+_FILENAME_PATTERN = re.compile(r"^[^/\\\x00]+\.pdf$", re.IGNORECASE)
 
 
 class ClassificationConfig(BaseModel):
@@ -59,6 +60,17 @@ class FinalizeRequest(BaseModel):
 
     processing_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-f0-9]+$")
     destinee: str = Field(min_length=1, max_length=80)
+    output_filename: Optional[str] = Field(default=None, max_length=180)
+
+    @field_validator("output_filename")
+    @classmethod
+    def validate_output_filename(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        if not _FILENAME_PATTERN.fullmatch(cleaned):
+            raise ValueError("Output filename must be a single .pdf filename")
+        return cleaned
 
 
 app = FastAPI(title="Document Classifier API", version="0.1.0")
@@ -282,7 +294,8 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         raise HTTPException(status_code=404, detail="Prepared document not found")
 
     destination_directory = DESTINATION_PATH / matching_destinee
-    destination_file = destination_directory / document_path.name
+    output_filename = request.output_filename or document_path.name
+    destination_file = destination_directory / output_filename
     archived_file = ARCHIVE_PATH / document_path.name
     try:
         destination_directory.mkdir(parents=True, exist_ok=True)
@@ -309,7 +322,8 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
 
     return {
         "status": "classified",
-        "filename": document_path.name,
+        "filename": output_filename,
+        "original_filename": document_path.name,
         "destinee": matching_destinee,
         "destination_path": str(destination_file),
         "archive_path": str(archived_file),

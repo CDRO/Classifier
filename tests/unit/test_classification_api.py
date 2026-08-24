@@ -111,3 +111,21 @@ def test_finalize_rejects_unknown_destinee(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 400
+
+
+def test_finalize_rejects_unsafe_output_filename(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (source / "invoice.pdf").write_bytes(b"prepared pdf")
+    client = TestClient(main.app)
+    prepared = client.post("/api/documents/invoice.pdf/prepare").json()
+
+    response = client.post(
+        "/api/documents/invoice.pdf/finalize",
+        json={
+            "processing_id": prepared["processing_id"],
+            "destinee": "Destinee A",
+            "output_filename": "../outside.pdf",
+        },
+    )
+
+    assert response.status_code == 422
