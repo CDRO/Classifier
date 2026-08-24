@@ -121,7 +121,8 @@ async function inspectDocument(filename) {
     const analysis = await analysisResponse.json();
     const party = analysis.party ? ` · ${analysis.party}` : "";
     const language = analysis.language && analysis.language !== "unknown" ? ` · ${analysis.language}` : "";
-    analysisSummary.textContent = `${analysis.category} · ${analysis.date}${language}${party} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}`;
+    const signals = analysis.signals?.length ? ` Signals: ${analysis.signals.join("; ")}.` : "";
+    analysisSummary.textContent = `${analysis.category} · ${analysis.date}${language}${party} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}${signals}`;
     analysisProvider.textContent = analysis.analysis_source === "gemini" ? "Analysis provider: Gemini" : "Analysis provider: Local fallback";
     analysisProvider.className = `analysis-provider ${analysis.analysis_source === "gemini" ? "provider-gemini" : "provider-local"}`;
     await loadAnalysisProvider();

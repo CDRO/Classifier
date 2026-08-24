@@ -200,6 +200,7 @@ Docker & Docker Compose
 - `POST /api/documents/{filename}/prepare` - Copy and inspect a PDF in processing storage
 - Prepared pages include `ocr_used`; pages without extractable text are rendered and processed with local Tesseract OCR.
 - `POST /api/documents/{filename}/analyze` - Extract content, detect language/topic, and suggest a filename in the document language
+- Analysis results include `language` and explainable `signals` for local fallback decisions.
 - `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee with an optional output filename
 - `GET /api/documents/history` - Return persisted document lifecycle history
 

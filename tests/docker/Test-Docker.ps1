@@ -126,7 +126,9 @@ try {
     Assert-Equal $analysis.topic "Invoice" "Content topic mismatch"
     Assert-Equal $analysis.category "Invoice" "Content category mismatch"
     Assert-Equal $analysis.analysis_source "local" "Unexpected analysis source"
-    Assert-Equal $analysis.language "unknown" "Unexpected local analysis language"
+    if (-not $analysis.signals -or $analysis.signals.Count -lt 1) {
+        throw "Local analysis signals were not returned."
+    }
     if (-not $analysis.title -or -not $analysis.summary) {
         throw "Rich content analysis fields were not returned."
     }

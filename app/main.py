@@ -46,6 +46,10 @@ _TOPIC_KEYWORDS: Dict[str, List[str]] = {
     "Insurance": ["insurance", "versicherung", "policy number", "claim"],
     "Tax": ["tax", "steuer", "finanzamt", "tax return"],
 }
+_LANGUAGE_KEYWORDS: Dict[str, List[str]] = {
+    "de": ["der", "die", "das", "und", "von", "für", "rechnung", "attest"],
+    "en": ["the", "and", "from", "for", "invoice", "certificate"],
+}
 
 
 class ClassificationConfig(BaseModel):
@@ -169,6 +173,11 @@ def extract_page_text(page: object) -> tuple[str, bool]:
 
 def analyze_text(text: str, filename: str) -> dict:
     normalized_text = text.casefold()
+    language_scores = {
+        language: sum(normalized_text.count(f" {keyword} ") for keyword in keywords)
+        for language, keywords in _LANGUAGE_KEYWORDS.items()
+    }
+    language = max(language_scores, key=language_scores.get) if max(language_scores.values(), default=0) else "unknown"
     scores = {
         topic: sum(normalized_text.count(keyword.casefold()) for keyword in keywords)
         for topic, keywords in _TOPIC_KEYWORDS.items()
@@ -176,6 +185,9 @@ def analyze_text(text: str, filename: str) -> dict:
     topic = max(scores, key=scores.get) if max(scores.values(), default=0) else "Document"
     score = scores.get(topic, 0)
     confidence = min(0.95, 0.45 + (score * 0.1)) if score else 0.25
+    signals = [f"Matched topic keywords for {topic}: {score}"] if score else ["No local topic keywords matched"]
+    if language != "unknown":
+        signals.append(f"Detected language: {language}")
     date_match = _DATE_PATTERN.search(text)
     date = date_match.group(0).replace("/", "-").replace(".", "-") if date_match else "undated"
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -193,7 +205,7 @@ def analyze_text(text: str, filename: str) -> dict:
     return {
         "topic": topic,
         "category": topic,
-        "language": "unknown",
+        "language": language,
         "confidence": round(confidence, 2),
         "date": date,
         "party": party,
@@ -201,6 +213,7 @@ def analyze_text(text: str, filename: str) -> dict:
         "summary": summary,
         "suggested_filename": suggested_filename,
         "analysis_source": "local",
+        "signals": signals,
     }
 
 
@@ -269,6 +282,7 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optiona
             "confidence": round(max(0.0, min(1.0, confidence)), 2),
             "suggested_filename": suggested_filename,
             "analysis_source": "gemini",
+            "signals": ["Gemini analyzed document content"],
         }
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
         write_analysis_status(

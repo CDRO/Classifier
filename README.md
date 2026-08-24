@@ -204,6 +204,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Prepare selected PDFs and display review metadata in the native UI
 - [x] Analyze PDF text locally and suggest a descriptive output filename
 - [x] Use Tesseract OCR for image-only pages
+- [x] Detect basic document language and expose local classification signals
 - [x] Ask Gemini to suggest filenames using the document's language
 - [x] Add optional Gemini enrichment with local fallback
 - [x] Show Gemini configuration and actual analysis provider in the review UI
