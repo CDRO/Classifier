@@ -202,9 +202,10 @@ Docker & Docker Compose
 - `POST /api/documents/{filename}/analyze` - Extract content, detect language/topic, and suggest a filename in the document language
 - Analysis results include `language` and explainable `signals` for local fallback decisions.
 - `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee with an optional output filename
+- `POST /api/documents/{filename}/dismiss` - Move an inbox PDF to the dismissed archive without processing it
 - `GET /api/documents/history` - Return persisted document lifecycle history
 
-**Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration. Finalization writes the classified copy, optionally using a reviewed `.pdf` filename, moves the original with its source name out of `/data/source` into `/data/archive/` so it no longer appears in the n8n inbox, and removes the temporary processing workspace.
+**Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, `dismissed` when a user rejects it, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration. Finalization writes the classified copy, optionally using a reviewed `.pdf` filename, moves the original with its source name out of `/data/source` into `/data/archive/` so it no longer appears in the n8n inbox, and removes the temporary processing workspace. Dismissal moves the source PDF directly to `/data/archive/dismissed/` without analysis or classified output.
 
 **Analysis provider visibility:** The review UI displays whether Gemini is configured and which provider actually returned the current analysis. The API exposes only a boolean configuration flag and the provider name; credentials are never returned. Analysis never selects a destinee. The user must explicitly choose any configured destinee during review, allowing correction of a mistaken route.
 

@@ -167,6 +167,18 @@ try {
     Assert-Equal $classifiedState.archive_path "/data/archive/handoff.pdf" "Archive path mismatch"
     Assert-Equal $classifiedState.destination_path "/data/destination/Shared/renamed-handoff.pdf" "Renamed destination path mismatch"
 
+    docker exec $container sh -c "cp /data/archive/handoff.pdf /data/source/dismissed.pdf"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not create dismissal fixture."
+    }
+    $dismissPayload = @{ reason = "Not relevant" } | ConvertTo-Json
+    $dismissed = Invoke-RestMethod -Uri "$baseUrl/api/documents/dismissed.pdf/dismiss" -Method Post `
+        -ContentType "application/json" -Body $dismissPayload
+    Assert-Equal $dismissed.status "dismissed" "Dismissal status mismatch"
+    if ((Test-Path (Join-Path $sourcePath "dismissed.pdf")) -or -not (Test-Path (Join-Path $archivePath "dismissed\dismissed.pdf"))) {
+        throw "Dismissed PDF was not moved to the dismissed archive."
+    }
+
     docker exec $container sh -c "cp /data/archive/handoff.pdf /data/source/redelivered.pdf"
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create duplicate source fixture."

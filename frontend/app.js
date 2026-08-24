@@ -76,10 +76,32 @@ function renderInbox(files) {
   files.forEach((file) => {
     const item = document.createElement("div");
     item.className = "inbox-item";
-    item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(file.name)}</strong><small>${formatBytes(file.size)} · ready in n8n input</small></button><span class="file-state">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>`;
+    item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(file.name)}</strong><small>${formatBytes(file.size)} · ready in n8n input</small></button><button class="dismiss-button" type="button" aria-label="Dismiss ${escapeHtml(file.name)}">Dismiss</button><span class="file-state">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>`;
     item.querySelector(".inbox-document").addEventListener("click", () => inspectDocument(file.name));
+    item.querySelector(".dismiss-button").addEventListener("click", () => dismissDocument(file.name));
     inboxList.append(item);
   });
+}
+
+async function dismissDocument(filename) {
+  const reason = window.prompt("Optional reason for dismissing this document:", "");
+  if (reason === null) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/dismiss`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Dismissal failed");
+    reviewPanel.hidden = true;
+    document.querySelector(".workflow-layout").classList.remove("review-active");
+    inboxStatus.textContent = `${result.filename} was dismissed and archived.`;
+    await refreshInbox();
+    await refreshHistory();
+  } catch (dismissError) {
+    inboxStatus.textContent = dismissError.message;
+  }
 }
 
 async function inspectDocument(filename) {

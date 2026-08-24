@@ -72,6 +72,8 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .inbox-item small { margin-top: 5px; color: var(--muted); font: 11px Arial, sans-serif; }
 .inbox-document { padding: 0; border: 0; background: transparent; color: var(--ink); text-align: left; }
 .inbox-document:hover strong { color: var(--green); }
+.dismiss-button { padding: 6px 8px; border: 1px solid #e5c8bd; border-radius: 2px; background: #fff8f5; color: #9b4d36; font: 700 10px Arial, sans-serif; }
+.dismiss-button:hover { border-color: #b8664e; background: #fff0e9; }
 .file-state { flex: 0 0 auto; color: var(--green); font: 700 10px Arial, sans-serif; letter-spacing: 1px; }
 .review-grid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(260px, 1fr); gap: 22px; margin-top: 24px; }
 .review-grid iframe { width: 100%; height: 520px; border: 1px solid var(--line); background: #eef1ed; }

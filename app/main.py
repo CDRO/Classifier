@@ -25,6 +25,7 @@ APP_VERSION = os.getenv("APP_VERSION", "dev")
 SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
 DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))
 ARCHIVE_PATH = Path(os.getenv("PROCESSED_ARCHIVE_PATH", "/data/archive"))
+DISMISSED_PATH = Path(os.getenv("DISMISSED_ARCHIVE_PATH", "/data/archive/dismissed"))
 CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json"))
 DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
 ANALYSIS_STATUS_PATH = Path(os.getenv("ANALYSIS_STATUS_PATH", "/data/config/analysis-status.json"))
@@ -453,6 +454,49 @@ def serve_document(filename: str):
             "Content-Disposition": f"inline; filename*=UTF-8''{quote(document_path.name)}"
         },
     )
+
+
+class DismissRequest(BaseModel):
+    """Optional explanation for dismissing an inbox document."""
+
+    reason: Optional[str] = Field(default=None, max_length=240)
+
+
+@app.post("/api/documents/{filename}/dismiss")
+def dismiss_document(filename: str, request: DismissRequest) -> dict:
+    """Move an inbox PDF to the dismissed archive without processing it."""
+    document_path = (SOURCE_PATH / filename).resolve()
+    if (
+        document_path.parent != SOURCE_PATH.resolve()
+        or not document_path.is_file()
+        or document_path.suffix.casefold() != ".pdf"
+    ):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    try:
+        dismissed_file = DISMISSED_PATH / document_path.name
+        DISMISSED_PATH.mkdir(parents=True, exist_ok=True)
+        if dismissed_file.exists():
+            raise HTTPException(status_code=409, detail="A dismissed document with this name already exists")
+        file_hash = calculate_file_hash(document_path)
+        shutil.move(str(document_path), dismissed_file)
+        write_document_state(
+            filename,
+            "dismissed",
+            sha256=file_hash,
+            reason=(request.reason or "").strip() or None,
+            dismissed_path=str(dismissed_file),
+        )
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="Unable to dismiss document") from exc
+
+    return {
+        "status": "dismissed",
+        "filename": filename,
+        "dismissed_path": str(dismissed_file),
+    }
 
 
 @app.post("/api/documents/{filename}/prepare")
