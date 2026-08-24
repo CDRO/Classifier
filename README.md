@@ -203,6 +203,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Run document-inbox and inspection checks in a disposable Docker container
 - [x] Prepare selected PDFs and display review metadata in the native UI
 - [x] Analyze PDF text locally and suggest a descriptive output filename
+- [x] Add optional Gemini enrichment with local fallback
 - [x] Finalize a reviewed PDF into its configured destinee folder
 - [x] Rename the classified output while preserving the original archive filename
 - [x] Persist document lifecycle states from receipt through classification

@@ -94,7 +94,8 @@ async function inspectDocument(filename) {
     const analysisResponse = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/analyze?processing_id=${encodeURIComponent(preparedDocument.processing_id)}`, { method: "POST" });
     if (!analysisResponse.ok) throw new Error("Content analysis failed");
     const analysis = await analysisResponse.json();
-    analysisSummary.textContent = `${analysis.topic} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}`;
+    const party = analysis.party ? ` · ${analysis.party}` : "";
+    analysisSummary.textContent = `${analysis.category} · ${analysis.date}${party} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}`;
     reviewFilename.value = analysis.suggested_filename;
     pageText.replaceChildren();
     preparedDocument.pages.forEach((page) => {

@@ -141,6 +141,8 @@ Docker & Docker Compose
 - Context Window: 1M tokens
 - Capabilities: Vision, text, structured output (JSON Schema)
 - Rate Limit: 100K requests/month free tier
+- Optional for the first local analysis pass; configured server-side with `GEMINI_API_KEY`, `GEMINI_ENDPOINT`, and `GEMINI_TIMEOUT`
+- The key is sent in the `x-goog-api-key` header and is never exposed to the native frontend
 
 **Fallback Classification API:** Anthropic Claude 3 Haiku
 - Cost: $0.25/1M input tokens, $1.25/1M output tokens

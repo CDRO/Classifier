@@ -103,6 +103,11 @@ try {
     Assert-Equal $prepared.status "in_review" "Prepared document status mismatch"
     $analysis = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/analyze?processing_id=$($prepared.processing_id)" -Method Post
     Assert-Equal $analysis.topic "Invoice" "Content topic mismatch"
+    Assert-Equal $analysis.category "Invoice" "Content category mismatch"
+    Assert-Equal $analysis.analysis_source "local" "Unexpected analysis source"
+    if (-not $analysis.title -or -not $analysis.summary) {
+        throw "Rich content analysis fields were not returned."
+    }
     if ($analysis.suggested_filename -notmatch '^undated_Invoice_handoff\.pdf$') {
         throw "Unexpected suggested filename: $($analysis.suggested_filename)"
     }

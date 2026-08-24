@@ -193,6 +193,11 @@ LOG_LEVEL=INFO
 GEMINI_API_KEY=your-gemini-api-key-here
 CLAUDE_API_KEY=your-claude-api-key-here (optional)
 
+# Optional Gemini content analysis
+# Leave GEMINI_API_KEY empty to use local keyword analysis only.
+GEMINI_ENDPOINT=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent
+GEMINI_TIMEOUT=20
+
 # Local container paths (host mappings belong in docker-compose.yml)
 TEMP_PATH=/data/temp
 RAW_INPUT_PATH=/data/source
@@ -213,6 +218,38 @@ API_WORKERS=4
 ```
 
 **Important:** The application uses `/data/source` and `/data/destination` by default. Host-specific folders are mapped later in `docker-compose.yml`; destinee names are configured in the web interface.
+
+#### 3.4.1 Configure Gemini Content Analysis
+
+Gemini is optional. Without `GEMINI_API_KEY`, the application uses the local classifier and does not make external analysis requests.
+
+1. Open [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Sign in to the Google account that will own the API key.
+3. Select an existing Google Cloud project or create a dedicated project.
+4. Click **Create API key** and copy the key once. Do not commit it to Git or put it in frontend files.
+5. Store the key in the server-side `docker.env` or, preferably, Docker Secrets:
+
+  ```ini
+  GEMINI_API_KEY=replace-with-your-key
+  GEMINI_ENDPOINT=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent
+  GEMINI_TIMEOUT=20
+  ```
+
+6. Ensure the backend container has outbound HTTPS access to `generativelanguage.googleapis.com`.
+7. Restart the classifier container so the server reads the new environment values:
+
+  ```bash
+  sudo docker-compose restart classifier-backend
+  ```
+
+8. Place a completed PDF in `/data/source`, select it in the web interface, and inspect the analysis result.
+9. Confirm the result contains `analysis_source: "gemini"` in the API response or that the review summary reflects the Gemini result.
+
+**Endpoint override:** Keep the default endpoint unless using a compatible proxy or model deployment. `GEMINI_ENDPOINT` must be the complete `generateContent` URL. The API key is sent in the `x-goog-api-key` header and is never sent to the browser.
+
+**Failure behavior:** If Gemini times out, returns an error, or returns invalid JSON, the classifier records no secret data and falls back to local analysis. Check backend logs for the failure and confirm the local result has `analysis_source: "local"`.
+
+**Key rotation:** Create a replacement key in Google AI Studio, update the server-side secret, restart the backend, verify one document, and revoke the old key.
 
 **Save and exit:** Press `Ctrl+O`, `Enter`, `Ctrl+X`
 

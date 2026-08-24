@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
+import httpx
 import pymupdf as fitz
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,12 @@ ARCHIVE_PATH = Path(os.getenv("PROCESSED_ARCHIVE_PATH", "/data/archive"))
 CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json"))
 DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
 TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_ENDPOINT = os.getenv(
+    "GEMINI_ENDPOINT",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+)
+GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "20"))
 
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
 _FILENAME_PATTERN = re.compile(r"^[^/\\\x00]+\.pdf$", re.IGNORECASE)
@@ -128,16 +135,78 @@ def analyze_text(text: str, filename: str) -> dict:
     confidence = min(0.95, 0.45 + (score * 0.1)) if score else 0.25
     date_match = _DATE_PATTERN.search(text)
     date = date_match.group(0).replace("/", "-").replace(".", "-") if date_match else "undated"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    title = lines[0][:120] if lines else Path(filename).stem
+    party_match = re.search(
+        r"(?:from|vendor|seller|company|sender|von|anbieter|firma)\s*[:\-]?\s*([^\n,]{2,80})",
+        text,
+        re.IGNORECASE,
+    )
+    party = party_match.group(1).strip() if party_match else None
     source_stem = Path(filename).stem
     safe_stem = re.sub(r"[^A-Za-z0-9]+", "-", source_stem).strip("-") or "document"
     suggested_filename = f"{date}_{topic}_{safe_stem}.pdf"
     summary = " ".join(text.split())[:240] or "No readable text was extracted from this PDF."
     return {
         "topic": topic,
+        "category": topic,
         "confidence": round(confidence, 2),
+        "date": date,
+        "party": party,
+        "title": title,
         "summary": summary,
         "suggested_filename": suggested_filename,
+        "analysis_source": "local",
     }
+
+
+def analyze_with_gemini(text: str, filename: str) -> Optional[dict]:
+    if not GEMINI_API_KEY:
+        return None
+    prompt = (
+        "Analyze this document text and return JSON only with these fields: "
+        "category (short noun), title (short title), date (YYYY-MM-DD or undated), "
+        "party (sender/vendor/person or null), summary (one sentence), "
+        "confidence (number from 0 to 1), suggested_filename (single safe .pdf filename).\n\n"
+        f"Original filename: {filename}\nDocument text:\n{text[:12000]}"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"response_mime_type": "application/json"},
+    }
+    try:
+        with httpx.Client(timeout=GEMINI_TIMEOUT) as client:
+            response = client.post(
+                GEMINI_ENDPOINT,
+                headers={"x-goog-api-key": GEMINI_API_KEY},
+                json=payload,
+            )
+            response.raise_for_status()
+            candidates = response.json().get("candidates", [])
+            response_text = candidates[0]["content"]["parts"][0]["text"]
+            result = json.loads(response_text)
+        if not isinstance(result, dict):
+            return None
+        local_result = analyze_text(text, filename)
+        category = str(result.get("category") or local_result["category"])[:80]
+        suggested_filename = str(result.get("suggested_filename") or local_result["suggested_filename"]).strip()
+        if not _FILENAME_PATTERN.fullmatch(suggested_filename):
+            suggested_filename = local_result["suggested_filename"]
+        confidence = float(result.get("confidence", local_result["confidence"]))
+        return {
+            **local_result,
+            "topic": category,
+            "category": category,
+            "title": str(result.get("title") or local_result["title"])[:120],
+            "date": str(result.get("date") or local_result["date"])[:20],
+            "party": result.get("party") or local_result["party"],
+            "summary": str(result.get("summary") or local_result["summary"])[:240],
+            "confidence": round(max(0.0, min(1.0, confidence)), 2),
+            "suggested_filename": suggested_filename,
+            "analysis_source": "gemini",
+        }
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def response_for(destinees: List[str]) -> ClassificationResponse:
@@ -317,7 +386,7 @@ def analyze_document(filename: str, processing_id: str) -> dict:
     except (OSError, fitz.FileDataError) as exc:
         write_document_state(filename, "failed", error="Unable to analyze PDF")
         raise HTTPException(status_code=422, detail="Unable to analyze PDF") from exc
-    result = analyze_text(text, filename)
+    result = analyze_with_gemini(text, filename) or analyze_text(text, filename)
     write_document_state(filename, "in_review", processing_id=processing_id, **result)
     return {"status": "in_review", **result}
 
