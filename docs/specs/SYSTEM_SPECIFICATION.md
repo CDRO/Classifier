@@ -177,7 +177,7 @@ Docker & Docker Compose
     ↓
 [Finalize] → Backend slices PDF, applies rotation, generates output names
     ↓
-[Classify Destinee] → Select one configured destinee (for example Destinee A, my girlfriend, her parents)
+[Classify Destinee] → Select one configured destinee
   ↓
 [Export] → Write to /data/destination/{destinee}/
     ↓
@@ -367,7 +367,7 @@ class StorageBackend(ABC):
     },
     "classification": {
       "output_root": "/data/destination/",
-      "destinees": ["Destinee A", "Destinee B", "Destinee C"]
+      "destinees": []
     }
   }
 }
@@ -385,7 +385,7 @@ Users configure first-level classification destinations via the web interface pa
 │  └─ Status: Waiting for n8n handoff                    │
 │                                                        │
 │ CLASSIFIED OUTPUT: /data/destination/                  │
-│  ├─ Destinees: Destinee A, Destinee B, Destinee C         │
+│  ├─ Destinees: configured by the administrator         │
 │  └─ [Add destinee] [Save configuration]                │
 │                                                        │
 └────────────────────────────────────────────────────────┘
@@ -412,8 +412,7 @@ NAS volumes (if using local NAS as archive backend):
 │   │   └── metadata.json
 │   └── Classified/
 │       ├── Destinee A/
-│       ├── Destinee B/
-│       └── Destinee C/
+│       └── {configured_destinee}/
 ├── Temp/
 │   ├── processing/
 │   │   └── {doc_id}/

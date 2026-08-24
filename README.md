@@ -134,7 +134,7 @@ The temporary `/data/temp/processing/<processing_id>/` workspace is removed afte
 
 **Features:**
 - One output folder per configured destinee
-- Initial destinees: `Destinee A`, `Destinee B`, `Destinee C`
+- No destinees are preconfigured; administrators add them in the web interface.
 - Destinees can be edited in the native browser interface
 
 ## Testing

@@ -1,5 +1,5 @@
 const STORAGE_KEY = "classifier.destinees";
-const DEFAULT_DESTINEES = ["Destinee A", "Destinee B", "Destinee C"];
+const DEFAULT_DESTINEES = [];
 const SOURCE_PATH = window.CLASSIFIER_CONFIG?.sourcePath || "/data/source";
 const DESTINATION_PATH = window.CLASSIFIER_CONFIG?.destinationPath || "/data/destination";
 const API_BASE_URL = window.CLASSIFIER_CONFIG?.apiBaseUrl || "";

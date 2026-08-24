@@ -281,7 +281,7 @@ class TestStorageBackendInterface:
             "source": {"type": "google_drive", "folder_id": "123"},
             "classification": {
                 "output_root": "/data/destination/",
-                "destinees": ["Destinee A", "Destinee B", "Destinee C"]
+                "destinees": ["Destinee A", "Destinee B"]
             }
         })
         assert config.is_valid() is True
@@ -417,12 +417,12 @@ class TestIngestionAndClassificationEndpoints:
         assert response.status_code == 200
         config = response.json()
         assert config["output_root"] == "/data/destination/"
-        assert config["destinees"] == ["Destinee A", "Destinee B", "Destinee C"]
+        assert config["destinees"] == ["Destinee A", "Destinee B"]
     
     def test_update_classification_config(self, client):
         """✓ Update destinees without changing the n8n source."""
         response = client.post("/api/classification/config", json={
-            "destinees": ["Destinee A", "Destinee B", "Destinee C", "Shared"]
+            "destinees": ["Destinee A", "Destinee B", "Shared"]
         })
         
         assert response.status_code == 200

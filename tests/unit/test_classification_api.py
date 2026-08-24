@@ -22,7 +22,7 @@ def test_get_default_classification_config(monkeypatch, tmp_path):
     response = TestClient(main.app).get("/api/classification/config")
 
     assert response.status_code == 200
-    assert response.json()["destinees"] == ["Destinee A", "Destinee B", "Destinee C"]
+    assert response.json()["destinees"] == []
     assert response.json()["output_root"].endswith("destination/")
 
 

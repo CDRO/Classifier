@@ -63,7 +63,7 @@ try {
 
     Assert-Equal $configResponse.input_path "/data/source" "Input path mismatch"
     Assert-Equal $configResponse.output_root "/data/destination/" "Output path mismatch"
-    Assert-Equal $configResponse.destinees.Count 3 "Default destinee count mismatch"
+    Assert-Equal $configResponse.destinees.Count 0 "Default destinee count mismatch"
 
     $analysisStatus = Invoke-RestMethod -Uri "$baseUrl/api/analysis/status" -Method Get
     Assert-Equal $analysisStatus.gemini_configured $false "Unexpected Gemini configuration in isolated test"
@@ -74,10 +74,10 @@ try {
         throw "Could not create valid PDF fixture in the test container."
     }
 
-    $payload = @{ destinees = @("Destinee A", "Destinee B", "Destinee C", "Shared") } | ConvertTo-Json
+    $payload = @{ destinees = @("Destinee A", "Destinee B", "Shared") } | ConvertTo-Json
     $updated = Invoke-RestMethod -Uri "$baseUrl/api/classification/config" -Method Post `
         -ContentType "application/json" -Body $payload
-    Assert-Equal $updated.destinees.Count 4 "Updated destinee count mismatch"
+    Assert-Equal $updated.destinees.Count 3 "Updated destinee count mismatch"
 
     $scan = Invoke-RestMethod -Uri "$baseUrl/api/classification/scan" -Method Post
     Assert-Equal $scan.count 1 "Completed PDF scan count mismatch"

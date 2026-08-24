@@ -440,7 +440,7 @@ The classifier does not fetch email or Google Drive files itself. n8n owns those
 
 1. Open **Settings → Classification Configuration**.
 2. Confirm the fixed paths shown for input and classified output.
-3. Add the initial destinees: `Destinee A`, `Destinee B`, and `Destinee C`.
+3. Add the destinees required for your installation.
 4. Save the configuration.
 5. The application creates or uses `/data/destination/<destinee>/` for each configured value.
 6. New destinees can be added in the UI without changing n8n or container configuration.
@@ -521,7 +521,7 @@ Future support for Microsoft SharePoint:
 3. Go to Settings → Classification Configuration
 4. Confirm input: `/data/source`
 5. Confirm output root: `/data/destination/`
-6. Configure the initial destinees: `Destinee A`, `Destinee B`, `Destinee C`
+6. Configure the destinees required for your installation.
 7. Save configuration
 
 **Startup logs:**
@@ -1235,7 +1235,7 @@ Upgrade NAS RAM to 16GB.
 
 4. Configure in classifier
   - Settings → Classification Configuration
-  - Add or edit destinees: `Destinee A`, `Destinee B`, `Destinee C`
+  - Add or edit the destinees required for your installation
   - Save configuration
 
 5. Verify (first boot)

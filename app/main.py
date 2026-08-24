@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-DEFAULT_DESTINEES = ["Destinee A", "Destinee B", "Destinee C"]
+DEFAULT_DESTINEES: List[str] = []
 SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
 DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))
 ARCHIVE_PATH = Path(os.getenv("PROCESSED_ARCHIVE_PATH", "/data/archive"))
@@ -47,7 +47,7 @@ _TOPIC_KEYWORDS: Dict[str, List[str]] = {
 class ClassificationConfig(BaseModel):
     """User-editable first-level classification configuration."""
 
-    destinees: List[str] = Field(min_length=1, max_length=50)
+    destinees: List[str] = Field(min_length=0, max_length=50)
 
     @field_validator("destinees")
     @classmethod
