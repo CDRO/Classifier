@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Classifier | Destinee configuration</title>
+  <link rel="stylesheet" href="styles.css?v=__APP_VERSION__">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">DOCUMENT CLASSIFIER</p>
+        <h1>Classification settings</h1>
+      </div>
+      <div class="status-pill"><span class="status-dot"></span> n8n handoff ready</div>
+    </header>
+    <p id="global-analysis-status" class="global-analysis-status" aria-live="polite">Checking Gemini availability...</p>
+
+    <section class="hero-band" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow accent">FIRST-LEVEL ROUTING</p>
+        <h2 id="page-title">Where should each document land?</h2>
+        <p class="lede">Configure the people or groups used for the first classification pass. External fetching stays in n8n.</p>
+      </div>
+      <div class="route-mark" aria-hidden="true"><span>RAW</span><i></i><span>CLASSIFIED</span></div>
+    </section>
+
+    <section class="path-grid" aria-label="Storage paths">
+      <article class="path-card">
+        <div class="card-label"><span class="icon">IN</span><span>n8n input</span></div>
+        <strong data-source-path>/data/source</strong>
+        <small>Completed PDFs arrive here</small>
+      </article>
+      <article class="path-card output-card">
+        <div class="card-label"><span class="icon">OUT</span><span>classified output</span></div>
+        <strong data-destination-path>/data/destination/</strong>
+        <small>One folder is created per destinee</small>
+      </article>
+    </section>
+
+    <section class="workspace-panel" aria-labelledby="destinee-title">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">ROUTING LIST</p>
+          <h2 id="destinee-title">Destinees</h2>
+        </div>
+        <span id="count" class="count">0 configured</span>
+      </div>
+
+      <form id="destinee-form" novalidate>
+        <div id="destinee-list" class="destinee-list"></div>
+        <div id="form-error" class="form-error" role="alert" aria-live="polite"></div>
+        <div class="panel-actions">
+          <button type="button" id="add-destinee" class="button button-secondary"><span aria-hidden="true">+</span> Add destinee</button>
+          <button type="submit" class="button button-primary">Save configuration <span aria-hidden="true">&#8594;</span></button>
+        </div>
+      </form>
+    </section>
+
+    <div class="workflow-layout">
+    <section class="inbox-panel" aria-labelledby="inbox-title">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">N8N HANDOFF</p>
+          <h2 id="inbox-title">Document inbox</h2>
+        </div>
+        <button type="button" id="refresh-inbox" class="button button-secondary">Refresh <span aria-hidden="true">&#8635;</span></button>
+      </div>
+      <p id="inbox-status" class="inbox-status" aria-live="polite">Checking for completed PDFs...</p>
+      <div id="inbox-list" class="inbox-list"></div>
+    </section>
+
+    <section id="review-panel" class="review-panel" aria-labelledby="review-title" aria-hidden="true">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">DOCUMENT REVIEW</p>
+          <h2 id="review-title">Inspect before routing</h2>
+        </div>
+        <span id="review-status" class="count">No document selected</span>
+      </div>
+      <p id="analysis-provider" class="analysis-provider" aria-live="polite">Checking analysis provider...</p>
+      <div class="review-grid">
+        <div class="review-preview-shell">
+          <iframe id="document-preview" title="Selected document preview"></iframe>
+          <div id="document-preview-loader" class="document-preview-loader visible" aria-live="polite" aria-label="Loading document preview"></div>
+        </div>
+        <div class="review-details">
+          <div id="page-summary" class="page-summary"></div>
+          <p id="analysis-summary" class="analysis-summary"></p>
+          <label for="review-destinee">Route to destinee</label>
+          <select id="review-destinee" required>
+            <option value="" selected disabled>Choose a destinee</option>
+          </select>
+          <label for="review-filename">Output filename</label>
+          <input id="review-filename" type="text" maxlength="180" spellcheck="false">
+          <button type="button" id="finalize-document" class="button button-primary" disabled>Finalize classification <span aria-hidden="true">&#8594;</span></button>
+          <p id="finalize-status" class="finalize-status" aria-live="polite"></p>
+          <div id="page-text" class="page-text"></div>
+          <div class="split-controls">
+            <label>Split before pages</label>
+            <div id="split-boundaries" class="split-boundaries"></div>
+            <button type="button" id="apply-split" class="button button-secondary">Apply split</button>
+            <p id="split-status" class="finalize-status" aria-live="polite"></p>
+            <div id="split-outputs" class="split-outputs" hidden></div>
+            <button type="button" id="finalize-split" class="button button-primary" hidden>Finalize split outputs <span aria-hidden="true">&#8594;</span></button>
+          </div>
+        </div>
+      </div>
+    </section>
+    </div>
+
+    <section class="history-panel" aria-labelledby="history-title">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">PROCESSING HISTORY</p>
+          <h2 id="history-title">Recent documents</h2>
+        </div>
+        <button type="button" id="refresh-history" class="button button-secondary">Refresh <span aria-hidden="true">&#8635;</span></button>
+      </div>
+      <p id="history-status" class="inbox-status" aria-live="polite">Loading history...</p>
+      <div id="history-list" class="history-list"></div>
+    </section>
+
+    <section class="folder-preview" aria-labelledby="preview-title">
+      <div class="preview-heading">
+        <div>
+          <p class="eyebrow">OUTPUT PREVIEW</p>
+          <h2 id="preview-title">Folder mapping</h2>
+        </div>
+        <span class="preview-root" data-preview-root>/data/destination/</span>
+      </div>
+      <div id="folder-list" class="folder-list"></div>
+    </section>
+
+    <footer><span>Classifier <strong id="app-version">version unavailable</strong></span><span id="app-revision">revision unavailable</span></footer>
+  </main>
+  <script src="config.js?v=__APP_VERSION__"></script>
+  <script src="app.js?v=__APP_VERSION__"></script>
+</body>
+</html>

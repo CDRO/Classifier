@@ -175,7 +175,7 @@ class TestStorageBackendInterface:
     
     @pytest.fixture
     def local_nas_backend(self):
-        return LocalNASBackend(base_path="/volume1/Documents")
+        return LocalNASBackend(base_path="/volume1/Archive")
     
     def test_google_drive_authenticate_valid_credentials(self, google_drive_backend, mocker):
         """✓ Google Drive authentication succeeds with valid service account."""
@@ -197,7 +197,7 @@ class TestStorageBackendInterface:
     
     def test_local_nas_authenticate_path_exists(self):
         """✓ Local NAS backend authenticates if path is readable."""
-        backend = LocalNASBackend(base_path="/volume1/Documents")
+        backend = LocalNASBackend(base_path="/volume1/Archive")
         result = backend.authenticate({})
         assert result is True
     
@@ -279,7 +279,10 @@ class TestStorageBackendInterface:
         # Valid config
         config = StorageConfig({
             "source": {"type": "google_drive", "folder_id": "123"},
-            "destination": {"type": "local_nas", "path": "/volume1/Documents"}
+            "classification": {
+                "output_root": "/data/destination/",
+                "destinees": ["Destinee A", "Destinee B"]
+            }
         })
         assert config.is_valid() is True
         
@@ -396,105 +399,45 @@ class TestAnalysisEndpoint:
         
         assert data["status"] == "completed"
 
-class TestStorageConfigurationEndpoints:
+class TestIngestionAndClassificationEndpoints:
     
-    def test_get_available_backends(self, client):
-        """✓ List all available storage backend types."""
-        response = client.get("/api/storage/backends")
+    def test_get_ingestion_status(self, client):
+        """✓ Report n8n handoff and fixed input path."""
+        response = client.get("/api/ingestion/status")
         
         assert response.status_code == 200
-        backends = response.json()["backends"]
-        assert "google_drive" in backends
-        assert "local_nas" in backends
-        # Should include type, description, required_credentials
-        assert backends["google_drive"]["description"]
+        status = response.json()
+        assert status["provider"] == "n8n"
+        assert status["input_path"] == "/data/source"
     
-    def test_get_current_storage_config(self, client):
-        """✓ Retrieve current source/destination configuration."""
-        response = client.get("/api/storage/config")
+    def test_get_classification_config(self, client):
+        """✓ Retrieve fixed paths and configured destinees."""
+        response = client.get("/api/classification/config")
         
         assert response.status_code == 200
         config = response.json()
-        assert "source" in config
-        assert "destination" in config
-        assert config["source"]["type"] in ["google_drive", "local_nas"]
+        assert config["output_root"] == "/data/destination/"
+        assert config["destinees"] == ["Destinee A", "Destinee B"]
     
-    def test_test_connection_google_drive_success(self, client, mocker):
-        """✓ Test Google Drive credentials succeed."""
-        mocker.patch("src.storage.backends.GoogleDriveBackend.authenticate", return_value=True)
-        
-        response = client.post("/api/storage/test-connection", json={
-            "backend_type": "google_drive",
-            "credentials": {
-                "type": "service_account",
-                "project_id": "test-project"
-            }
+    def test_update_classification_config(self, client):
+        """✓ Update destinees without changing the n8n source."""
+        response = client.post("/api/classification/config", json={
+            "destinees": ["Destinee A", "Destinee B", "Shared"]
         })
         
         assert response.status_code == 200
-        assert response.json()["connection_ok"] is True
+        config = response.json()
+        assert config["destinees"][-1] == "Shared"
+        assert config["output_root"] == "/data/destination/"
     
-    def test_test_connection_google_drive_failure(self, client, mocker):
-        """✓ Test Google Drive connection fails with invalid credentials."""
-        mocker.patch("src.storage.backends.GoogleDriveBackend.authenticate", side_effect=Exception("Auth failed"))
-        
-        response = client.post("/api/storage/test-connection", json={
-            "backend_type": "google_drive",
-            "credentials": {"invalid": "creds"}
+    def test_update_classification_config_rejects_duplicates(self, client):
+        """✓ Reject duplicate destinee names."""
+        response = client.post("/api/classification/config", json={
+            "destinees": ["Destinee A", "destinee a"]
         })
         
         assert response.status_code == 400
-        assert response.json()["connection_ok"] is False
-    
-    def test_list_google_drive_folders(self, client, mocker):
-        """✓ List folders from authenticated Google Drive."""
-        mock_folders = [
-            {"id": "folder1", "name": "Document Inbox"},
-            {"id": "folder2", "name": "Archive"}
-        ]
-        mocker.patch("src.storage.backends.GoogleDriveBackend.list_folders", return_value=mock_folders)
-        
-        response = client.get("/api/storage/google_drive/folders")
-        
-        assert response.status_code == 200
-        folders = response.json()["folders"]
-        assert len(folders) == 2
-        assert folders[0]["name"] == "Document Inbox"
-    
-    def test_update_storage_config(self, client, mocker):
-        """✓ Update source and destination storage backends."""
-        new_config = {
-            "source": {
-                "type": "google_drive",
-                "folder_id": "1a2b3c4d5e6f7g8h9i0j",
-                "folder_name": "Document Inbox"
-            },
-            "destination": {
-                "type": "google_drive",
-                "folder_id": "9z8y7x6w5v4u3t2s1r0q",
-                "folder_name": "Processed Documents"
-            }
-        }
-        
-        # Mock credential validation
-        mocker.patch("src.storage.config.StorageConfig.validate", return_value=True)
-        mocker.patch("src.storage.config.StorageConfig.persist")
-        
-        response = client.post("/api/storage/config", json=new_config)
-        
-        assert response.status_code == 200
-        assert response.json()["message"] == "Configuration updated"
-    
-    def test_update_storage_config_invalid_backend(self, client):
-        """✓ Reject configuration with invalid backend type."""
-        invalid_config = {
-            "source": {"type": "invalid_backend", "path": "/"}
-        }
-        
-        response = client.post("/api/storage/config", json=invalid_config)
-        
-        assert response.status_code == 400
-        assert "Unknown backend type" in response.json()["detail"]
+        assert "unique" in response.json()["detail"].lower()
 
 ---
 
@@ -1143,6 +1086,43 @@ class TestPerformanceBenchmarks:
 # Run benchmarks
 # pytest tests/performance/test_benchmarks.py -v --benchmark-only
 ```
+
+## 10.2 Docker Integration Test Lifecycle
+
+The Docker integration test at `tests/docker/Test-Docker.ps1` validates the built application rather than importing the API directly. It must:
+
+1. Create isolated temporary source, destination, and configuration directories.
+2. Add a completed PDF and an incomplete temporary file to the source directory.
+3. Build the current `Dockerfile` image.
+4. Start one uniquely named container on a dynamically allocated free port.
+5. Verify the API, n8n scan behavior, SHA-256 duplicate detection, document metadata inspection, PDF preparation, OCR, local content analysis, language detection, layout-aware signals, local entity extraction, filename suggestions, browser file serving, page rotation, page thumbnails, document splitting, multi-output finalization, lifecycle transitions, processing history, path traversal protection, safe output renaming, destinee finalization, dismissal without processing, source removal, archive preservation, temporary-workspace cleanup, configuration update, and mounted destinee-folder creation.
+6. Remove the test container and temporary directories in `finally`, whether assertions pass or fail.
+
+Run it from PowerShell:
+
+```powershell
+.\tests\docker\Test-Docker.ps1
+```
+
+The test must not use the development container name or port and must never leave a test container running after completion.
+
+### 10.3 Local Fallback and Document-Handling Test Plan
+
+The next implementation phase must add focused tests for:
+
+- OCR activation when a page has no extractable text.
+- German and English OCR language selection.
+- Image preprocessing and orientation handling.
+- Page-level text aggregation and classification signals.
+- SHA-256 duplicate detection when filenames differ.
+- Duplicate predecessor reporting through `duplicate_of`, including renamed redelivery after a classified archive record.
+- Rotation at 90, 180, and 270 degrees.
+- Split boundaries at the first page, last page, and between every page.
+- Validation that every source page belongs to exactly one split output.
+- Multiple output filenames and one-time source archiving.
+- Malformed PDFs, empty documents, and failed OCR recovery.
+
+All integration tests for these features must run in a disposable Docker container and remove the container and temporary mounts in `finally`.
 
 ---
 

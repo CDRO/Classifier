@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-A budget-friendly, configurable document processing pipeline with AI-assisted UI hosted on Synology NAS. The system features a pluggable storage architecture supporting multiple document sources (Google Drive, local NAS, SharePoint, etc.) and destinations, with a web-based configuration interface. Lightweight local execution (UI, PDF processing, splitting) complements cheap cloud AI micro-services (vision/text classification), delivering a responsive user experience with strict cost controls and operational flexibility.
+A budget-friendly, configurable document processing pipeline with AI-assisted UI hosted on Synology NAS. n8n handles external ingestion and places incoming files in a mounted local source directory. The classifier owns local processing, first-level destinee classification, and output routing beneath configurable local folders. Lightweight local execution complements cheap cloud AI micro-services (vision/text classification), delivering a responsive user experience with strict cost controls and operational flexibility.
 
 ---
 
@@ -31,8 +31,8 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
 │                                                                      │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │ Frontend Layer                                                 │ │
-│  │ • React / Next.js Web Application                             │ │
-│  │ • Storage Backend Configuration UI (Source & Destination)     │ │
+│  │ • Native HTML, CSS, and browser JavaScript                   │ │
+│  │ • Destinee Configuration UI                                  │ │
 │  │ • Client-side PDF rendering & manipulation                    │ │
 │  │ • Interactive split point visualization                       │ │
 │  │ • Real-time thumbnail generation                              │ │
@@ -45,7 +45,7 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
 │  │ • Tesseract OCR (optional, local)                              │ │
 │  │ • Local embeddings computation                                 │ │
 │  │ • Storage Backend Manager (abstract factory pattern)           │ │
-│  │ • Pluggable source/destination backends                        │ │
+│  │ • n8n handoff monitoring and local output routing               │ │
 │  │ • API orchestration & caching                                  │ │
 │  └────────────────────────────────────────────────────────────────┘ │
 │                                                                      │
@@ -73,7 +73,8 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
     │ • Local NAS Storage                                          │
     │ • SharePoint / Microsoft 365                                 │
     │ • Dropbox (future)                                           │
-    │ • Archive raw originals (always to configured source)        │
+    │ • Raw originals: /data/source                                  │
+    │ • Destinee output: /data/destination/<destinee>/              │
     └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -81,7 +82,7 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
 
 | Component | Purpose | Technology | Resource Requirement |
 |-----------|---------|-----------|----------------------|
-| Frontend | User Interface + Config | React/Next.js + TypeScript | ~200MB RAM |
+| Frontend | User Interface + Config | Native HTML, CSS, JavaScript | Static files |
 | Backend | API & Business Logic | FastAPI + Python 3.9+ | ~400MB RAM |
 | PDF Engine | Document Manipulation | PyMuPDF | Native binary (~50MB) |
 | OCR Engine | Text Extraction (Optional) | Tesseract OCR | ~300MB (if installed) |
@@ -120,21 +121,17 @@ Python 3.9+
 
 **Frontend:**
 ```
-Node.js 18+
-├── React 18+
-├── Next.js 14+
-├── TypeScript 5+
-├── pdf-lib (client-side PDF manipulation)
-├── axios (API client)
-└── tailwindcss (styling)
+Browser runtime only
+├── Native HTML
+├── Native CSS
+└── Native JavaScript (no npm packages or Node.js runtime)
 ```
 
 **Deployment:**
 ```
 Docker & Docker Compose
 ├── Official Python 3.11 image
-├── Node.js 18 build stage
-└── Multi-stage build for size optimization
+└── Static frontend files served by the web server
 ```
 
 ### 2.3 AI Service Integration
@@ -144,6 +141,8 @@ Docker & Docker Compose
 - Context Window: 1M tokens
 - Capabilities: Vision, text, structured output (JSON Schema)
 - Rate Limit: 100K requests/month free tier
+- Optional for the first local analysis pass; configured server-side with `GEMINI_API_KEY`, `GEMINI_ENDPOINT`, and `GEMINI_TIMEOUT`. The default endpoint uses the currently supported Gemini Flash model.
+- The key is sent in the `x-goog-api-key` header and is never exposed to the native frontend
 
 **Fallback Classification API:** Anthropic Claude 3 Haiku
 - Cost: $0.25/1M input tokens, $1.25/1M output tokens
@@ -155,16 +154,16 @@ Docker & Docker Compose
 - Tesseract OCR (one-time CPU cost, no API)
 - Local header detection via regex/heuristics
 
-### 2.4 Data Flow (Pluggable Sources & Destinations)
+### 2.4 Data Flow (n8n Ingestion & Local Classification)
 
 ```
-[Source Backend] (Google Drive, Local NAS, SharePoint, etc.)
-    ↓
-[Fetch PDF] → Source backend API or local file I/O
+[n8n Ingestion Workflow] (external source is configured in n8n)
+  ↓
+[Handoff] → Write completed PDF to /data/source
     ↓
 [Store Locally] → Cache to /volume1/Temp/processing/{doc_id}/
     ↓
-[Archive Original] → Immutable copy to configured archive backend
+[Archive Original] → Original remains in /data/source
     ↓
 [Extract Text] → PyMuPDF (vector PDF) or Tesseract (scanned)
     ↓
@@ -178,12 +177,14 @@ Docker & Docker Compose
     ↓
 [Finalize] → Backend slices PDF, applies rotation, generates output names
     ↓
-[Export] → Write to destination backend (Google Drive, SharePoint, NAS, etc.)
+[Classify Destinee] → Select one configured destinee
+  ↓
+[Export] → Write to /data/destination/{destinee}/
     ↓
 [Cleanup] → Remove temp files from /volume1/Temp/ after successful export
 ```
 
-**Architecture Benefit:** Users select source and destination via web UI; no code changes needed.
+**Architecture Boundary:** n8n owns external source fetching. The classifier web UI owns destinee configuration; no source credentials or external fetch implementation is required in the classifier.
 
 ---
 
@@ -194,6 +195,35 @@ Docker & Docker Compose
 **File Management:**
 - `POST /api/upload` - Upload PDF document
 - `GET /api/document/{doc_id}` - Retrieve document metadata
+- `GET /api/documents/{filename}` - Inspect one completed PDF from the n8n input directory
+- `GET /api/documents/{filename}/file` - Serve one source PDF for browser review
+- `POST /api/documents/{filename}/prepare` - Copy and inspect a PDF in processing storage
+- Prepared pages include `ocr_used`; pages without extractable text are rendered and processed with local Tesseract OCR.
+- `POST /api/documents/{filename}/analyze` - Extract content, detect language/topic, and suggest a filename in the document language
+- `POST /api/documents/{filename}/rotate` - Rotate one page in the prepared PDF
+- `POST /api/documents/{filename}/split` - Create numbered PDF parts from selected page boundaries
+- `POST /api/documents/{filename}/finalize-split` - Finalize all split parts with independent filenames and destinees
+- `GET /api/processing/{processing_id}/file` - Serve the current prepared PDF for review
+- `GET /api/processing/{processing_id}/pages/{page}/thumbnail` - Render a prepared page thumbnail
+- Analysis results include `language` and explainable `signals` for local fallback decisions.
+- `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee with an optional output filename
+- `POST /api/documents/{filename}/dismiss` - Move an inbox PDF to the dismissed archive without processing it
+- `GET /api/documents/history` - Return persisted document lifecycle history
+
+**Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, `dismissed` when a user rejects it, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration. Finalization writes the classified copy, optionally using a reviewed `.pdf` filename, moves the original with its source name out of `/data/source` into `/data/archive/` so it no longer appears in the n8n inbox, and removes the temporary processing workspace. Dismissal moves the source PDF directly to `/data/archive/dismissed/` without analysis or classified output.
+
+**Analysis provider visibility:** The review UI displays whether Gemini is configured and which provider actually returned the current analysis. The API exposes only a boolean configuration flag and the provider name; credentials are never returned. Analysis never selects a destinee. The user must explicitly choose any configured destinee during review, allowing correction of a mistaken route.
+
+**Local OCR:** OCR is activated per page only when native PDF text is empty. The default languages are English and German (`OCR_LANGUAGES=eng+deu`), and the review UI marks OCR-processed pages.
+OCR input uses grayscale rendering at `OCR_RENDER_SCALE` (default `2`) and Tesseract automatic page segmentation. OCR remains limited to pages that need it.
+
+**Local entities:** The fallback extracts up to ten document dates, monetary amounts, and labeled reference numbers from native or OCR text. These fields are advisory signals and remain editable or overridable during review.
+
+**Layout-aware analysis:** The classifier records top-of-first-page text, a first-page title clue, and text lengths per page. These positional signals are supplied to Gemini and retained in the analysis result for future local classification improvements.
+
+**Split workflow:** Selected boundaries create numbered parts in the processing workspace. Users assign an independent filename and destinee to each part. Multi-output finalization writes all outputs, archives the source once, and removes the processing workspace only after every output succeeds.
+
+**Gemini availability:** A `429` quota/rate-limit response or another Gemini request failure is recorded in the mounted analysis-status file. The UI then warns that Gemini is temporarily unavailable and local fallback is active. A later valid Gemini response marks the provider available again and clears the warning.
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails
 - `DELETE /api/document/{doc_id}` - Remove document from processing queue
 
@@ -207,20 +237,21 @@ Docker & Docker Compose
 - `POST /api/export` - Finalize and export to destination
 - `GET /api/export-status/{export_id}` - Check export progress
 
-**Storage Backend Configuration:**
-- `GET /api/storage/backends` - List available backend types
-- `GET /api/storage/config` - Get current source/destination configuration
-- `POST /api/storage/config` - Update storage configuration
-- `POST /api/storage/test-connection` - Test credentials for a backend
-- `GET /api/storage/{backend_type}/folders` - List folders in backend (requires auth)
-- `POST /api/storage/credentials` - Store encrypted credentials
-- `DELETE /api/storage/credentials/{backend_id}` - Remove credentials
+**Ingestion and Classification Configuration:**
+- `GET /api/ingestion/status` - Report n8n handoff and input-directory status
+- `GET /api/analysis/status` - Report whether Gemini is configured, without exposing its key
+- `GET /api/version` - Return the version embedded in the running Docker image
+- `GET /api/classification/config` - Get configured destinees and fixed paths
+- `POST /api/classification/config` - Add, rename, remove, or reorder destinees
+- `POST /api/classification/scan` - Scan the n8n input directory for completed PDFs
+
+Each scanned PDF receives a SHA-256 content identity. A new filename with a hash already associated with a classified document is reported as `duplicate`; the scan record includes the matching classified filename in `duplicate_of`. The scanner also hashes classified PDFs in the archive so records created before hash persistence remain identifiable.
 
 ### 3.2 AI API Integration
 
 **Gemini Request (Vision/Classification):**
 ```
-POST https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent
+POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
 
 Request Body:
 {
@@ -264,9 +295,18 @@ Request Body:
 
 ---
 
-## 3.3 Storage Backend Architecture (Pluggable)
+## 3.3 Storage and Ingestion Architecture
 
-The system uses an **abstract factory pattern** to support multiple storage backends for both document ingestion (source) and export (destination). This enables users to configure their workflow via the web UI without code changes.
+External source integrations are deliberately outside the classifier. n8n fetches documents from email, Google Drive, or any other configured source and writes completed PDFs to the container's mounted input directory. The classifier uses local file I/O for the initial source and destination paths. This keeps source credentials and workflow orchestration in n8n while allowing the web UI to configure business-level destinees.
+
+**Runtime directories:**
+- Input: `/data/source`
+- Classified output root: `/data/destination/`
+- Destinee output: `/data/destination/{destinee}/`
+- Processing temporary files: `/data/temp/processing/{doc_id}/`
+- Processed source archive: `/data/archive/`
+
+The existing `StorageBackend` abstraction remains available for a future external output provider, but it is not part of the initial n8n/local implementation path.
 
 ### 3.3.1 Backend Interface (Abstract Base Class)
 
@@ -338,57 +378,38 @@ class StorageBackend(ABC):
 
 ### 3.3.3 Backend Configuration Management
 
-**Storage Configuration (persisted in database):**
+**Classification Configuration (persisted in database):**
 
 ```json
 {
   "storage_config": {
-    "source": {
-      "type": "google_drive",
-      "backend_id": "source-gd-1",
-      "credentials_key": "gd_creds_2026",
-      "folder_id": "1a2b3c4d5e6f7g8h9i0j",
-      "folder_name": "Document Inbox",
-      "account": "documents@company.com"
+    "ingestion": {
+      "provider": "n8n",
+      "input_path": "/data/source"
     },
-    "destination": {
-      "type": "google_drive",
-      "backend_id": "dest-gd-1",
-      "credentials_key": "gd_creds_2026",
-      "folder_id": "9z8y7x6w5v4u3t2s1r0q",
-      "folder_name": "Processed Documents",
-      "account": "documents@company.com"
-    },
-    "archive": {
-      "type": "local_nas",
-      "path": "/volume1/Archive/Originals_RAW"
+    "classification": {
+      "output_root": "/data/destination/",
+      "destinees": []
     }
   }
 }
 ```
 
-### 3.3.4 Storage Backend Selection UI
+### 3.3.4 Destinee Configuration UI
 
-Users configure storage via web interface panel:
+Users configure first-level classification destinations via the web interface panel:
 
 ```
-┌─ Storage Configuration ────────────────────────────────┐
+┌─ Classification Configuration ─────────────────────────┐
 │                                                        │
-│ SOURCE: Google Drive                                  │
-│  ├─ Account: documents@company.com                   │
-│  ├─ Folder: Document Inbox                           │
-│  └─ [Change] [Test Connection]                       │
+│ INGESTION: n8n                                          │
+│  ├─ Input: /data/source                                │
+│  └─ Status: Waiting for n8n handoff                    │
 │                                                        │
-│ DESTINATION: Google Drive                             │
-│  ├─ Account: documents@company.com                   │
-│  ├─ Folder: Processed Documents                      │
-│  └─ [Change] [Test Connection]                       │
+│ CLASSIFIED OUTPUT: /data/destination/                  │
+│  ├─ Destinees: configured by the administrator         │
+│  └─ [Add destinee] [Save configuration]                │
 │                                                        │
-│ ARCHIVE (immutable): Local NAS                        │
-│  ├─ Path: /volume1/Archive/Originals_RAW             │
-│  └─ Storage: 2.3 TB / 5.0 TB                          │
-│                                                        │
-│ [Add Backend] [Remove] [Save Configuration]           │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -396,21 +417,24 @@ Users configure storage via web interface panel:
 
 ## 4. Database & Storage Schema
 
-### 4.1 File System Layout (Local NAS - Temporary & Archive)
+### 4.1 File System Layout (n8n Input & Local Classified Output)
 
 The NAS storage is used for:
-- **Temporary processing** (documents in transit, pending finalization)
-- **Archive** (immutable originals from source backend)
-- **Cache** (thumbnails, renderings)
+- **Raw input** (completed PDFs handed off by n8n)
+- **Classified output** (one directory per configured destinee)
+- **Temporary processing** (thumbnails, renderings, and analysis state)
 
 NAS volumes (if using local NAS as archive backend):
 
 ```
 /volume1/
 ├── Archive/
-│   └── Originals_RAW/
-│       ├── {timestamp}_{uuid}_original.pdf (immutable copy from source)
-│       └── metadata.json
+│   ├── Originals_RAW/
+│   │   ├── {timestamp}_{uuid}_original.pdf (n8n handoff)
+│   │   └── metadata.json
+│   └── Classified/
+│       ├── {configured_destinee}/
+│       └── {configured_destinee}/
 ├── Temp/
 │   ├── processing/
 │   │   └── {doc_id}/
@@ -427,7 +451,7 @@ NAS volumes (if using local NAS as archive backend):
     └── (system backups, not user documents)
 ```
 
-**Note:** If source/destination backends are configured (Google Drive, SharePoint, etc.), final documents are NOT stored on NAS; they're written directly to the destination backend. NAS only holds temporary processing files and archives of originals.
+**Note:** n8n is responsible for external source access. The initial classifier implementation reads from and writes to the mounted container paths; each configured destinee maps to a directory below `/data/destination/`. Host-specific NAS paths are supplied by `docker-compose.yml`.
 
 ### 4.2 Metadata Structure
 
@@ -566,12 +590,18 @@ NAS volumes (if using local NAS as archive backend):
 
 ### 9.1 Planned Features
 
-1. **Multi-User Workflow:** Role-based access (Reviewer, Approver, Admin)
-2. **OCR Post-Processing:** Layout reconstruction for rotated/split pages
-3. **Webhook Export:** Trigger external systems via HTTP callbacks
-4. **Advanced Batch Processing:** Schedule recurring document ingestion from source backend
-5. **BI Dashboard:** Monthly cost reports, processing metrics
-6. **Additional Storage Backends:** Dropbox, Azure Blob, S3 support
+1. **OCR Fallback:** Tesseract for image-only pages with German and English language data
+2. **Image Preprocessing:** Deskew, denoise, contrast, orientation, and grayscale preparation
+3. **Language-Aware Local Analysis:** Page-level language detection and matching rules
+4. **Richer Local Classification:** Categories, entities, signals, and confidence explanations
+5. **Document Identity:** SHA-256 duplicate detection independent of filename
+6. **Page Rotation:** Per-page 90, 180, and 270 degree rotation in the review workflow
+7. **Document Splitting:** User-controlled boundaries and multiple output PDFs
+8. **Multi-User Workflow:** Role-based access (Reviewer, Approver, Admin)
+9. **Webhook Export:** Trigger external systems via HTTP callbacks
+10. **Advanced Batch Processing:** Schedule recurring document ingestion from n8n
+11. **BI Dashboard:** Monthly cost reports and processing metrics
+12. **Additional Storage Backends:** Dropbox, Azure Blob, and S3 support
 
 ### 9.2 Extensibility Points
 

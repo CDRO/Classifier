@@ -1,0 +1,4 @@
+/app/data/database.sqlite3
+/app/data/
+/data
+docker.env
