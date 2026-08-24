@@ -310,6 +310,13 @@ def extract_page_text(page: object) -> tuple[str, bool]:
     text = page.get_text()
     if text.strip():
         return text, False
+    return "", False
+
+
+def extract_page_text_with_ocr(page: object) -> tuple[str, bool]:
+    text = page.get_text()
+    if text.strip():
+        return text, False
     image = page.get_pixmap(
         matrix=fitz.Matrix(OCR_RENDER_SCALE, OCR_RENDER_SCALE),
         colorspace=fitz.csGRAY,
@@ -933,9 +940,14 @@ def analyze_document(filename: str, processing_id: str) -> dict:
             return {"status": "in_review", **cached_result}
 
         with fitz.open(processing_path) as pdf:
-            text = "\n".join(extract_page_text(page)[0] for page in pdf)
+            text = "\n".join(page.get_text() for page in pdf)
+            if not text.strip():
+                text = "\n".join(extract_page_text_with_ocr(page)[0] for page in pdf)
             layout = extract_layout_metadata(pdf)
-            result = analyze_with_gemini(text, filename, pdf, layout) or analyze_text(text, filename)
+            if GEMINI_API_KEY:
+                result = analyze_with_gemini(text, filename, pdf, layout) or analyze_text(text, filename)
+            else:
+                result = analyze_text(text, filename)
             result["layout"] = layout
     except (OSError, fitz.FileDataError) as exc:
         write_document_state(filename, "failed", error="Unable to analyze PDF")

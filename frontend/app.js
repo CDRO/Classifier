@@ -56,6 +56,39 @@ let historyDocuments = [];
 let mergeSelection = new Set();
 let shelvedFiles = new Set();
 
+function bindReviewDestineeValueSync() {
+  if (!reviewDestinee || reviewDestinee.dataset.destineeSyncBound === "true") return;
+  const valueDescriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+  if (!valueDescriptor) return;
+
+  Object.defineProperty(reviewDestinee, "value", {
+    configurable: true,
+    get() {
+      return valueDescriptor.get.call(this);
+    },
+    set(nextValue) {
+      const normalizedValue = nextValue ?? "";
+      if (valueDescriptor.get.call(this) !== normalizedValue) {
+        valueDescriptor.set.call(this, normalizedValue);
+      }
+    }
+  });
+  reviewDestinee.dataset.destineeSyncBound = "true";
+}
+
+bindReviewDestineeValueSync();
+
+function applyReviewDestineeSelection(value) {
+  const nextValue = value ?? "";
+  if (!reviewDestinee) return;
+  if ([...reviewDestinee.options].some((option) => option.value === nextValue)) {
+    reviewDestinee.value = nextValue;
+  } else {
+    reviewDestinee.value = "";
+  }
+  refreshFinalizeButtonState();
+}
+
 function loadDestinees() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
@@ -98,12 +131,36 @@ function escapeHtml(value) {
   return value.replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[character]));
 }
 
+function setReviewDestineeValue(value) {
+  const nextValue = value ?? "";
+  const currentValue = reviewDestinee?.value ?? "";
+  if (currentValue !== nextValue) {
+    reviewDestinee.value = nextValue;
+  }
+  reviewDestinee.dispatchEvent(new Event("input", { bubbles: true }));
+  reviewDestinee.dispatchEvent(new Event("change", { bubbles: true }));
+  refreshFinalizeButtonState();
+}
+
+function restoreReviewDestineeSelection(previousValue) {
+  if (!reviewDestinee) return;
+  const currentValue = previousValue ?? "";
+  const validOptions = [...reviewDestinee.options].map((option) => option.value);
+  if (!currentValue || !validOptions.includes(currentValue)) {
+    reviewDestinee.value = "";
+    refreshFinalizeButtonState();
+    return;
+  }
+  reviewDestinee.value = currentValue;
+  refreshFinalizeButtonState();
+}
+
 function resetReviewPanelState() {
   selectedDocument = null;
   reviewFilename.value = "";
   analysisSummary.textContent = "";
   pageSummary.textContent = "";
-  reviewDestinee.value = "";
+  setReviewDestineeValue("");
   reviewDestinee.disabled = true;
   finalizeButton.disabled = true;
   finalizeStatus.textContent = "";
@@ -390,12 +447,14 @@ async function inspectDocument(filename) {
     if (!configResponse.ok) throw new Error("Configuration lookup failed");
     const config = await configResponse.json();
     configuredDestinees = config.destinees;
+    const metadataResponse = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}`);
+    const metadata = metadataResponse.ok ? await metadataResponse.json() : {};
+    const existingReviewDestineeValue = metadata.destinee || reviewDestinee.value || "";
     reviewDestinee.replaceChildren();
     const placeholder = document.createElement("option");
     placeholder.value = "";
     placeholder.textContent = "Choose a destinee";
     placeholder.disabled = true;
-    placeholder.selected = true;
     reviewDestinee.append(placeholder);
     config.destinees.forEach((destinee) => {
       const option = document.createElement("option");
@@ -403,7 +462,17 @@ async function inspectDocument(filename) {
       option.textContent = destinee;
       reviewDestinee.append(option);
     });
+    if (existingReviewDestineeValue && config.destinees.includes(existingReviewDestineeValue)) {
+      reviewDestinee.value = existingReviewDestineeValue;
+      if (metadata.destination_path) {
+        reviewFilename.value = metadata.destination_path.split(/[\\/]/).pop() || reviewFilename.value;
+      }
+    } else {
+      reviewDestinee.value = "";
+      placeholder.selected = true;
+    }
     reviewDestinee.disabled = false;
+    refreshFinalizeButtonState();
     analysisProvider.textContent = "Analysis provider: Gemini analyzing...";
     analysisProvider.className = "analysis-provider provider-gemini";
     analysisSummary.textContent = "Reading document content...";
@@ -413,11 +482,11 @@ async function inspectDocument(filename) {
     const analysis = await analysisResponse.json();
     const suggestedDestinee = suggestBestDestinee(analysis, filename);
     if (suggestedDestinee) {
-      reviewDestinee.value = suggestedDestinee;
+      setReviewDestineeValue(suggestedDestinee);
       reviewDestinee.dataset.suggested = "true";
       finalizeStatus.textContent = `Suggested destinee: ${suggestedDestinee}.`;
     } else {
-      reviewDestinee.value = "";
+      setReviewDestineeValue("");
       delete reviewDestinee.dataset.suggested;
     }
     const party = analysis.party ? ` · ${analysis.party}` : "";
@@ -432,6 +501,7 @@ async function inspectDocument(filename) {
     analysisProvider.className = `analysis-provider ${analysis.analysis_source === "gemini" ? "provider-gemini" : "provider-local"}`;
     await loadAnalysisProvider();
     reviewFilename.value = analysis.suggested_filename;
+    refreshFinalizeButtonState();
     pageText.replaceChildren();
     splitBoundaries.replaceChildren();
     for (let page = 2; page <= preparedDocument.page_count; page += 1) {
@@ -495,8 +565,7 @@ async function inspectDocument(filename) {
       });
       pageText.append(block);
     });
-    finalizeButton.disabled = true;
-    finalizeStatus.textContent = "";
+    refreshFinalizeButtonState();
     inboxStatus.textContent = `${preparedDocument.original_name} is ready for destinee review.`;
   } catch {
     await loadAnalysisProvider();
@@ -790,23 +859,31 @@ function getExistingOutputConflict(destinee, outputFilename) {
   }) || null;
 }
 
+function refreshFinalizeButtonState() {
+  updateFinalizeWarnings();
+  const canFinalize = Boolean(selectedDocument) && Boolean(reviewDestinee.value) && Boolean(reviewFilename.value.trim()) && !getExistingOutputConflict(reviewDestinee.value, reviewFilename.value.trim());
+  finalizeButton.disabled = !canFinalize;
+}
+
 function updateFinalizeWarnings() {
-  if (!selectedDocument || !reviewDestinee.value) {
+  const hasSelectedDocument = Boolean(selectedDocument);
+  const hasDestinee = Boolean(reviewDestinee.value);
+  const filename = reviewFilename.value.trim();
+  const conflict = hasDestinee && filename ? getExistingOutputConflict(reviewDestinee.value, filename) : null;
+
+  if (!hasSelectedDocument || !hasDestinee) {
     finalizeButton.disabled = true;
     finalizeStatus.textContent = "";
-    setReviewStatus(selectedDocument ? `${selectedDocument.filename} · awaiting destinee` : "No document selected", selectedDocument && selectedDocument.duplicateOf ? "warning" : "neutral");
+    setReviewStatus(hasSelectedDocument ? `${selectedDocument.filename} · awaiting destinee` : "No document selected", hasSelectedDocument && selectedDocument.duplicateOf ? "warning" : "neutral");
     updateReviewSummary({
       duplicate: Boolean(selectedDocument?.duplicateOf),
-      queuePosition: selectedDocument ? getVisibleInboxFiles().findIndex((entry) => entry.name === selectedDocument.filename) + 1 || null : null,
-      filename: selectedDocument ? formatSourcePath(selectedDocument.filename).basename : null,
+      queuePosition: hasSelectedDocument ? getVisibleInboxFiles().findIndex((entry) => entry.name === selectedDocument.filename) + 1 || null : null,
+      filename: hasSelectedDocument ? formatSourcePath(selectedDocument.filename).basename : null,
       blocked: Boolean(selectedDocument?.duplicateOf),
-      ready: Boolean(selectedDocument) && !selectedDocument?.duplicateOf
+      ready: hasSelectedDocument && !selectedDocument?.duplicateOf
     });
     return;
   }
-
-  const filename = reviewFilename.value.trim();
-  const conflict = getExistingOutputConflict(reviewDestinee.value, filename);
 
   if (!filename) {
     finalizeStatus.textContent = "Choose a valid output filename before finalizing.";
@@ -1191,12 +1268,12 @@ reviewDestinee.addEventListener("change", () => {
   }
 
   delete reviewDestinee.dataset.suggested;
-  updateFinalizeWarnings();
+  refreshFinalizeButtonState();
 });
 
 reviewFilename.addEventListener("input", () => {
   if (!selectedDocument) return;
-  updateFinalizeWarnings();
+  refreshFinalizeButtonState();
 });
 
 window.addEventListener("keydown", async (event) => {

@@ -8,11 +8,18 @@ from fastapi.testclient import TestClient
 def load_api(monkeypatch, tmp_path):
     source = tmp_path / "source"
     destination = tmp_path / "destination"
+    temp = tmp_path / "temp"
     config = tmp_path / "config.json"
+    documents = tmp_path / "documents.json"
+    analysis_status = tmp_path / "analysis-status.json"
     source.mkdir()
     monkeypatch.setenv("RAW_INPUT_PATH", str(source))
     monkeypatch.setenv("CLASSIFIED_OUTPUT_PATH", str(destination))
     monkeypatch.setenv("CLASSIFICATION_CONFIG_PATH", str(config))
+    monkeypatch.setenv("DOCUMENTS_STATUS_PATH", str(documents))
+    monkeypatch.setenv("ANALYSIS_STATUS_PATH", str(analysis_status))
+    monkeypatch.setenv("TEMP_PATH", str(temp))
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     import app.main as main
     return importlib.reload(main), source, destination
 
@@ -209,6 +216,29 @@ def test_analyze_document_uses_cached_gemini_proposal(monkeypatch, tmp_path):
 
     assert second_response.status_code == 200
     assert second_response.json()["suggested_filename"] == "invoice_cached.pdf"
+
+
+def test_prepare_does_not_run_ocr_for_blank_pages(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (source / "blank.pdf").write_bytes(b"placeholder")
+    client = TestClient(main.app)
+
+    from pymupdf import open as open_pdf
+
+    pdf = open_pdf()
+    pdf.new_page()
+    pdf.save(source / "blank.pdf")
+    pdf.close()
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("OCR should not run during prepare")
+
+    monkeypatch.setattr(main.subprocess, "run", fail_if_called)
+    prepared = client.post("/api/documents/blank.pdf/prepare").json()
+
+    assert prepared["page_count"] == 1
+    assert prepared["pages"][0]["text"] == ""
+    assert prepared["ocr_used"] is False
 
 
 def test_reorder_pages_updates_processing_order(monkeypatch, tmp_path):
