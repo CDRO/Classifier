@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 DEFAULT_DESTINEES: List[str] = []
+APP_VERSION = os.getenv("APP_VERSION", "dev")
 SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
 DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))
 ARCHIVE_PATH = Path(os.getenv("PROCESSED_ARCHIVE_PATH", "/data/archive"))
@@ -247,6 +248,12 @@ def analysis_status() -> dict:
         "endpoint": GEMINI_ENDPOINT,
         "fallback": "local",
     }
+
+
+@app.get("/api/version")
+def version_status() -> dict:
+    """Return the non-secret version embedded in the running container."""
+    return {"version": APP_VERSION}
 
 
 @app.get("/api/classification/config", response_model=ClassificationResponse)

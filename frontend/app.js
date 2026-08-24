@@ -22,6 +22,7 @@ const historyList = document.querySelector("#history-list");
 const historyStatus = document.querySelector("#history-status");
 const finalizeButton = document.querySelector("#finalize-document");
 const finalizeStatus = document.querySelector("#finalize-status");
+const appVersion = document.querySelector("#app-version");
 let selectedDocument = null;
 
 function loadDestinees() {
@@ -198,6 +199,17 @@ async function loadAnalysisProvider() {
   }
 }
 
+async function loadVersion() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/version`);
+    if (!response.ok) throw new Error("Version request failed");
+    const result = await response.json();
+    appVersion.textContent = `v${result.version}`;
+  } catch {
+    appVersion.textContent = "version unavailable";
+  }
+}
+
 async function refreshHistory() {
   try {
     const response = await fetch(`${API_BASE_URL}/api/documents/history`);
@@ -279,6 +291,7 @@ initialize();
 refreshInbox();
 refreshHistory();
 loadAnalysisProvider();
+loadVersion();
 
 document.querySelector("[data-source-path]").textContent = SOURCE_PATH;
 document.querySelector("[data-destination-path]").textContent = `${DESTINATION_PATH}/`;

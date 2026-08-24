@@ -26,7 +26,7 @@ try {
     Set-Content -Path (Join-Path $sourcePath "handoff.pdf") -Value "%PDF-1.4"
     Set-Content -Path (Join-Path $sourcePath "handoff.tmp") -Value "incomplete"
 
-    docker build -t $image .
+    docker build --build-arg APP_VERSION=integration-test -t $image .
     if ($LASTEXITCODE -ne 0) {
         throw "Docker image build failed."
     }
@@ -68,6 +68,9 @@ try {
     $analysisStatus = Invoke-RestMethod -Uri "$baseUrl/api/analysis/status" -Method Get
     Assert-Equal $analysisStatus.gemini_configured $false "Unexpected Gemini configuration in isolated test"
     Assert-Equal $analysisStatus.fallback "local" "Analysis fallback mismatch"
+
+    $version = Invoke-RestMethod -Uri "$baseUrl/api/version" -Method Get
+    Assert-Equal $version.version "integration-test" "Container version mismatch"
 
     docker exec $container python -c "import pymupdf; pdf=pymupdf.open(); page=pdf.new_page(); page.insert_text((72,72), 'Invoice Amount Due VAT'); pdf.save('/data/source/handoff.pdf')"
     if ($LASTEXITCODE -ne 0) {

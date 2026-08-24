@@ -221,6 +221,7 @@ Docker & Docker Compose
 **Ingestion and Classification Configuration:**
 - `GET /api/ingestion/status` - Report n8n handoff and input-directory status
 - `GET /api/analysis/status` - Report whether Gemini is configured, without exposing its key
+- `GET /api/version` - Return the version embedded in the running Docker image
 - `GET /api/classification/config` - Get configured destinees and fixed paths
 - `POST /api/classification/config` - Add, rename, remove, or reorder destinees
 - `POST /api/classification/scan` - Scan the n8n input directory for completed PDFs

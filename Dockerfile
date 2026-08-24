@@ -1,5 +1,9 @@
 FROM python:3.12-alpine
 
+ARG APP_VERSION=dev
+LABEL org.opencontainers.image.version=$APP_VERSION
+ENV APP_VERSION=$APP_VERSION
+
 WORKDIR /app
 
 RUN apk add --no-cache libstdc++ \

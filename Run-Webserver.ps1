@@ -5,7 +5,8 @@ $imageName = $((Split-Path $projectRoot -Leaf).ToLower())
 function Build-ClassifierImage {
     Write-Host "Building image..."
     Write-Host $imageName
-    docker build -t $imageName $projectRoot
+    $version = (git -C $projectRoot rev-parse --short HEAD).Trim()
+    docker build --build-arg APP_VERSION=$version -t $imageName $projectRoot
     if ($LASTEXITCODE -ne 0) {
         throw "Docker build failed with exit code $LASTEXITCODE"
     }

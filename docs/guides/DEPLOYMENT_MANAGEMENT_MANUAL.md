@@ -219,6 +219,14 @@ API_WORKERS=4
 
 **Important:** The application uses `/data/source` and `/data/destination` by default. Host-specific folders are mapped later in `docker-compose.yml`; destinee names are configured in the web interface.
 
+The running container version is shown in the application footer. It is also available without exposing secrets:
+
+```bash
+curl http://localhost:3000/api/version
+```
+
+Normal builds started through `Run-Webserver.ps1` embed the short Git commit as the version. Published images should be built with `--build-arg APP_VERSION=<release-or-commit>` so the interface identifies the exact image in use.
+
 #### 3.4.1 Configure Gemini Content Analysis
 
 Gemini is optional. Without `GEMINI_API_KEY`, the application uses the local classifier and does not make external analysis requests.
