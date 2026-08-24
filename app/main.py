@@ -149,6 +149,22 @@ class SplitFinalizeRequest(BaseModel):
     outputs: List[SplitOutput] = Field(min_length=1, max_length=100)
 
 
+class ReorderPagesRequest(BaseModel):
+    """Requested page order for one prepared document."""
+
+    processing_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-f0-9]+$")
+    page_order: List[int] = Field(min_length=1, max_length=1000)
+
+    @field_validator("page_order")
+    @classmethod
+    def validate_page_order(cls, value: List[int]) -> List[int]:
+        if not value:
+            raise ValueError("Page order cannot be empty")
+        if any(page < 1 for page in value):
+            raise ValueError("Page order values must be positive")
+        return value
+
+
 class MergeDocumentsRequest(BaseModel):
     """Requests to combine multiple source PDFs into one routed output."""
 
@@ -720,6 +736,32 @@ def split_document(filename: str, request: SplitRequest) -> dict:
     except (OSError, fitz.FileDataError) as exc:
         raise HTTPException(status_code=422, detail="Unable to split PDF") from exc
     return {"processing_id": request.processing_id, "part_count": len(parts), "parts": parts}
+
+
+@app.post("/api/documents/{filename:path}/reorder-pages")
+def reorder_document_pages(filename: str, request: ReorderPagesRequest) -> dict:
+    """Persist a new page order for the prepared working copy."""
+    processing_path = prepared_file(request.processing_id)
+    try:
+        with fitz.open(processing_path) as pdf:
+            page_count = pdf.page_count
+            normalized_order = sorted(set(request.page_order))
+            if len(request.page_order) != page_count or sorted(request.page_order) != list(range(1, page_count + 1)):
+                raise HTTPException(status_code=422, detail="Page order must contain each page exactly once")
+            ordered_pdf = fitz.open()
+            for page_number in request.page_order:
+                ordered_pdf.insert_pdf(pdf, from_page=page_number - 1, to_page=page_number - 1)
+            reordered_path = processing_path.with_suffix(".reordered.pdf")
+            ordered_pdf.save(reordered_path)
+            ordered_pdf.close()
+        reordered_path.replace(processing_path)
+        for thumbnail_path in sorted(processing_path.parent.glob("page_*.jpg")):
+            thumbnail_path.unlink(missing_ok=True)
+    except HTTPException:
+        raise
+    except (OSError, fitz.FileDataError) as exc:
+        raise HTTPException(status_code=422, detail="Unable to reorder PDF pages") from exc
+    return {"processing_id": request.processing_id, "page_order": request.page_order, "status": "reordered"}
 
 
 @app.post("/api/documents/{filename:path}/finalize-split")

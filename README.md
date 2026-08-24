@@ -269,9 +269,11 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
     - Allow users to add, remove, and move split points.
     - Support multiple output documents from one source PDF.
     - Preserve page order and validate that every page belongs to exactly one output.
+    - Reordering pages via drag-and-drop persists to the working copy before the split/finalize flow is executed.
 
 8. **Review and finalization integration**
     - Display OCR text, analysis signals, rotations, and split groups together.
+    - Keep analysis text collapsed by default for a compact review flow, with each page expandable on demand.
     - Let the user correct the category, filename, and destinee.
     - Finalize all split outputs safely and archive the original once.
 

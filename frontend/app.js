@@ -442,11 +442,56 @@ async function inspectDocument(filename) {
     }
     preparedDocument.pages.forEach((page) => {
       const block = document.createElement("article");
-      block.className = "page-text-block";
+      block.className = "page-text-block is-collapsed";
+      block.draggable = true;
+      block.dataset.page = String(page.page);
       const ocrLabel = page.ocr_used ? " · OCR" : "";
-      block.innerHTML = `<img class="page-thumbnail" src="${API_BASE_URL}/api/processing/${encodeURIComponent(preparedDocument.processing_id)}/pages/${page.page}/thumbnail" alt="Page ${page.page} preview"><div class="page-text-heading"><strong>Page ${page.page}${ocrLabel}</strong><div class="rotation-controls"><button type="button" data-rotation="270" aria-label="Rotate page ${page.page} left">&#8634;</button><button type="button" data-rotation="90" aria-label="Rotate page ${page.page} right">&#8635;</button></div></div><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
+      const summaryText = page.text ? page.text.trim().slice(0, 90).replace(/\s+/g, " ") : "No text extracted.";
+      block.innerHTML = `
+        <div class="page-text-heading">
+          <button type="button" class="page-toggle" aria-expanded="false" aria-controls="page-text-${page.page}">Page ${page.page}${ocrLabel}</button>
+          <div class="rotation-controls">
+            <button type="button" data-rotation="270" aria-label="Rotate page ${page.page} left">&#8634;</button>
+            <button type="button" data-rotation="90" aria-label="Rotate page ${page.page} right">&#8635;</button>
+          </div>
+        </div>
+        <div id="page-text-${page.page}" class="page-text-body">
+          <img class="page-thumbnail" src="${API_BASE_URL}/api/processing/${encodeURIComponent(preparedDocument.processing_id)}/pages/${page.page}/thumbnail" alt="Page ${page.page} preview">
+          <p>${escapeHtml(page.text || "No text extracted.")}</p>
+        </div>
+        <p class="page-text-summary">${escapeHtml(summaryText)}</p>
+      `;
+      const pageToggle = block.querySelector(".page-toggle");
+      const pageBody = block.querySelector(".page-text-body");
+      const pageSummaryLine = block.querySelector(".page-text-summary");
+      pageToggle.addEventListener("click", () => {
+        const isCollapsed = block.classList.toggle("is-collapsed");
+        pageToggle.setAttribute("aria-expanded", String(!isCollapsed));
+        pageBody.hidden = isCollapsed;
+        pageSummaryLine.hidden = !isCollapsed;
+      });
+      pageBody.hidden = true;
+      pageSummaryLine.hidden = false;
       block.querySelectorAll("[data-rotation]").forEach((button) => {
         button.addEventListener("click", () => rotatePage(page.page, Number(button.dataset.rotation)));
+      });
+      block.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", String(page.page));
+        event.dataTransfer.effectAllowed = "move";
+      });
+      block.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      });
+      block.addEventListener("drop", async (event) => {
+        event.preventDefault();
+        const draggedPage = Number(event.dataTransfer.getData("text/plain"));
+        const targetPage = Number(block.dataset.page);
+        if (!Number.isFinite(draggedPage) || !Number.isFinite(targetPage) || draggedPage === targetPage) {
+          return;
+        }
+        reorderPageBlocks(draggedPage, targetPage);
+        await persistPageOrder();
       });
       pageText.append(block);
     });
@@ -516,6 +561,53 @@ finalizeSplitButton.addEventListener("click", async () => {
     splitStatus.textContent = splitFinalizeError.message;
   }
 });
+
+function getPageOrderFromView() {
+  return [...pageText.querySelectorAll(".page-text-block")].map((block) => Number(block.dataset.page));
+}
+
+function reorderPageBlocks(sourcePage, targetPage) {
+  const blocks = [...pageText.querySelectorAll(".page-text-block")];
+  const sourceIndex = blocks.findIndex((block) => Number(block.dataset.page) === sourcePage);
+  const targetIndex = blocks.findIndex((block) => Number(block.dataset.page) === targetPage);
+  if (sourceIndex === -1 || targetIndex === -1) {
+    return;
+  }
+  const [movedBlock] = blocks.splice(sourceIndex, 1);
+  blocks.splice(targetIndex, 0, movedBlock);
+  pageText.replaceChildren(...blocks);
+  blocks.forEach((block) => {
+    block.dataset.page = String(Number(block.dataset.page));
+    block.querySelector("strong").textContent = `Page ${Number(block.dataset.page)}`;
+    block.querySelectorAll("[data-rotation]").forEach((button) => {
+      button.setAttribute("aria-label", `Rotate page ${Number(block.dataset.page)} ${button.dataset.rotation === "270" ? "left" : "right"}`);
+    });
+  });
+}
+
+async function persistPageOrder() {
+  if (!selectedDocument) return;
+  const order = getPageOrderFromView();
+  if (!order.length) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(selectedDocument.filename)}/reorder-pages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ processing_id: selectedDocument.processingId, page_order: order })
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Page reorder failed" }));
+      throw new Error(error.detail || "Page reorder failed");
+    }
+    documentPreview.src = `${API_BASE_URL}/api/processing/${encodeURIComponent(selectedDocument.processingId)}/file?refresh=${Date.now()}`;
+    pageText.querySelectorAll(".page-thumbnail").forEach((thumbnail) => {
+      thumbnail.src = `${thumbnail.src.split("?")[0]}?refresh=${Date.now()}`;
+    });
+    finalizeStatus.textContent = "Page order updated.";
+  } catch (error) {
+    finalizeStatus.textContent = error.message || "The page order could not be saved.";
+  }
+}
 
 async function rotatePage(page, rotation) {
   if (!selectedDocument) return;

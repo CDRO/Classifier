@@ -207,8 +207,11 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .file-state-neutral { color: var(--muted); }
 .page-text { max-height: 380px; margin-top: 22px; overflow: auto; }
 .page-text-block { padding: 12px 0; border-top: 1px solid var(--line); }
+.page-text-block.is-collapsed .page-text-body { display: none; }
+.page-text-summary { margin: 8px 0 0; color: var(--muted); font: 12px/1.5 Arial, sans-serif; }
+.page-text-block:not(.is-collapsed) .page-text-summary { display: none; }
 .page-thumbnail { display: block; width: min(100%, 360px); max-height: 220px; margin: 0 0 12px; object-fit: contain; object-position: left top; border: 1px solid var(--line); background: #eef1ed; }
-.page-text-block strong { font: 700 11px Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; }
+.page-toggle { border: 0; background: transparent; padding: 0; color: var(--ink); font: 700 11px Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; text-align: left; cursor: pointer; }
 .page-text-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .rotation-controls { display: flex; gap: 5px; }
 .rotation-controls button { width: 28px; height: 28px; border: 1px solid var(--line); background: white; color: var(--green); font-family: Arial, sans-serif; }

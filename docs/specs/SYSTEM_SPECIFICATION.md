@@ -221,7 +221,9 @@ OCR input uses grayscale rendering at `OCR_RENDER_SCALE` (default `2`) and Tesse
 
 **Layout-aware analysis:** The classifier records top-of-first-page text, a first-page title clue, and text lengths per page. These positional signals are supplied to Gemini and retained in the analysis result for future local classification improvements.
 
-**Split workflow:** Selected boundaries create numbered parts in the processing workspace. Users assign an independent filename and destinee to each part. Multi-output finalization writes all outputs, archives the source once, and removes the processing workspace only after every output succeeds.
+**Split workflow:** Selected boundaries create numbered parts in the processing workspace. Users assign an independent filename and destinee to each part. Multi-output finalization writes all outputs, archives the source once, and removes the processing workspace only after every output succeeds. Reordering the working PDF is supported in review mode; the drag-and-drop order is persisted to the prepared processing copy before finalization.
+
+**Review panel behavior:** The analysis text for each page is collapsed by default to keep the review panel compact, while the summary excerpt remains visible. Users can expand any page individually to inspect extracted text, rotate it, or reorder pages without losing the compact overview.
 
 **Gemini availability:** A `429` quota/rate-limit response or another Gemini request failure is recorded in the mounted analysis-status file. The UI then warns that Gemini is temporarily unavailable and local fallback is active. A later valid Gemini response marks the provider available again and clears the warning.
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails

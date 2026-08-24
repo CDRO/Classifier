@@ -237,6 +237,31 @@ def test_reorder_pages_updates_processing_order(monkeypatch, tmp_path):
     assert pages == ["Third page", "First page", "Second page"]
 
 
+def test_split_document_creates_ordered_parts(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (source / "split.pdf").write_bytes(b"placeholder")
+    client = TestClient(main.app)
+
+    from pymupdf import open as open_pdf
+
+    pdf = open_pdf()
+    for text in ["First page", "Second page", "Third page"]:
+        page = pdf.new_page()
+        page.insert_text((72, 72), text)
+    pdf.save(source / "split.pdf")
+    pdf.close()
+
+    prepared = client.post("/api/documents/split.pdf/prepare").json()
+    response = client.post(
+        "/api/documents/split.pdf/split",
+        json={"processing_id": prepared["processing_id"], "split_pages": [2]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["part_count"] == 2
+    assert [part["start_page"] for part in response.json()["parts"]] == [1, 2]
+
+
 def test_merge_documents_creates_single_output(monkeypatch, tmp_path):
     main, source, destination = load_api(monkeypatch, tmp_path)
     client = TestClient(main.app)
