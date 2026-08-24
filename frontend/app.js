@@ -89,6 +89,7 @@ async function inspectDocument(filename) {
     const preparedDocument = await response.json();
     selectedDocument = { filename, processingId: preparedDocument.processing_id };
     reviewPanel.hidden = false;
+    reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
     reviewStatus.textContent = `${preparedDocument.original_name} · ${preparedDocument.status.replace("_", " ")}`;
     reviewFilename.value = preparedDocument.original_name;
     documentPreview.src = `${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/file`;
@@ -131,7 +132,6 @@ async function inspectDocument(filename) {
     finalizeButton.disabled = true;
     finalizeStatus.textContent = "";
     inboxStatus.textContent = `${preparedDocument.original_name} is ready for destinee review.`;
-    reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch {
     inboxStatus.textContent = "The document could not be loaded from the n8n input directory.";
   }
