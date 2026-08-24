@@ -13,9 +13,53 @@
         <p class="eyebrow">DOCUMENT CLASSIFIER</p>
         <h1>Classification settings</h1>
       </div>
-      <div class="status-pill"><span class="status-dot"></span> n8n handoff ready</div>
+      <div class="topbar-actions">
+        <button type="button" id="help-button" class="button button-secondary help-button" aria-label="Open help menu">? Help</button>
+        <div class="status-pill"><span class="status-dot"></span> n8n handoff ready</div>
+      </div>
     </header>
     <p id="global-analysis-status" class="global-analysis-status" aria-live="polite">Checking Gemini availability...</p>
+
+    <div id="help-overlay" class="help-overlay" aria-hidden="true">
+      <div class="help-panel" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <div class="help-header">
+          <div>
+            <p class="eyebrow">USAGE GUIDE</p>
+            <h2 id="help-title">How the review workflow works</h2>
+          </div>
+          <button type="button" id="close-help" class="button button-secondary" aria-label="Close help">Close</button>
+        </div>
+        <div class="help-content">
+          <section>
+            <h3>Keyboard shortcuts</h3>
+            <ul>
+              <li><strong>N</strong> — move to the next visible document in the inbox</li>
+              <li><strong>D</strong> — dismiss the current document and archive it</li>
+              <li><strong>Enter</strong> — finalize the current document when a destinee is selected</li>
+              <li><strong>H</strong> or <strong>?</strong> — open or close this help menu</li>
+              <li><strong>Esc</strong> — close the help menu</li>
+            </ul>
+          </section>
+          <section>
+            <h3>General flow</h3>
+            <ol>
+              <li>Select a file from the inbox to open the review panel.</li>
+              <li>Review the extracted text, page thumbnails, and suggested filename.</li>
+              <li>Choose a destinee and confirm the output filename.</li>
+              <li>Finalize to move the file into the selected output folder and archive the original source.</li>
+            </ol>
+          </section>
+          <section>
+            <h3>Useful checks</h3>
+            <ul>
+              <li>Use the search and folder filters to narrow the queue.</li>
+              <li>Duplicate files are highlighted with a warning before finalization.</li>
+              <li>Use page rotation or split mode when the document needs manual cleanup before routing.</li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </div>
 
     <section class="hero-band" aria-labelledby="page-title">
       <div>

@@ -34,6 +34,9 @@ const globalAnalysisStatus = document.querySelector("#global-analysis-status");
 const reviewSourcePath = document.querySelector("#review-source-path");
 const reviewOriginalFilename = document.querySelector("#review-original-filename");
 const reviewDuplicateWarning = document.querySelector("#review-duplicate-warning");
+const helpButton = document.querySelector("#help-button");
+const helpOverlay = document.querySelector("#help-overlay");
+const closeHelpButton = document.querySelector("#close-help");
 const inboxSearch = document.querySelector("#inbox-search");
 const inboxFolderFilter = document.querySelector("#inbox-folder-filter");
 const inboxStatusFilter = document.querySelector("#inbox-status-filter");
@@ -550,6 +553,18 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function openHelpMenu() {
+  if (!helpOverlay) return;
+  helpOverlay.classList.add("visible");
+  helpOverlay.setAttribute("aria-hidden", "false");
+}
+
+function closeHelpMenu() {
+  if (!helpOverlay) return;
+  helpOverlay.classList.remove("visible");
+  helpOverlay.setAttribute("aria-hidden", "true");
+}
+
 async function goToNextVisibleDocument() {
   if (!selectedDocument) return;
   const nextFiles = getVisibleInboxFiles();
@@ -719,6 +734,21 @@ async function refreshHistory() {
   }
 }
 
+helpButton?.addEventListener("click", () => {
+  const isVisible = helpOverlay.classList.contains("visible");
+  if (isVisible) {
+    closeHelpMenu();
+  } else {
+    openHelpMenu();
+  }
+});
+closeHelpButton?.addEventListener("click", closeHelpMenu);
+helpOverlay?.addEventListener("click", (event) => {
+  if (event.target === helpOverlay) {
+    closeHelpMenu();
+  }
+});
+
 document.querySelector("#add-destinee").addEventListener("click", () => {
   const next = readRows();
   next.push("");
@@ -771,8 +801,25 @@ reviewFilename.addEventListener("input", () => {
 window.addEventListener("keydown", async (event) => {
   const targetTag = event.target?.tagName;
   const isTypingField = targetTag === "INPUT" || targetTag === "TEXTAREA" || targetTag === "SELECT";
-  if (isTypingField) return;
 
+  if ((event.key === "h" || event.key === "H" || event.key === "?") && !isTypingField) {
+    event.preventDefault();
+    const isVisible = helpOverlay.classList.contains("visible");
+    if (isVisible) {
+      closeHelpMenu();
+    } else {
+      openHelpMenu();
+    }
+    return;
+  }
+
+  if (event.key === "Escape" && helpOverlay?.classList.contains("visible")) {
+    event.preventDefault();
+    closeHelpMenu();
+    return;
+  }
+
+  if (isTypingField) return;
   if (!selectedDocument) return;
 
   if (event.key === "n" || event.key === "N") {
