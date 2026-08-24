@@ -275,7 +275,7 @@ def scan_input_directory() -> dict:
             states.setdefault(path.name, {"status": "received"})
     DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
-    files = sorted(
+    files = [
         {
             "name": path.name,
             "path": str(path),
@@ -284,7 +284,8 @@ def scan_input_directory() -> dict:
         }
         for path in SOURCE_PATH.iterdir()
         if path.is_file() and path.suffix.casefold() == ".pdf" and not path.name.startswith(".")
-    )
+    ]
+    files.sort(key=lambda file: file["name"].casefold())
     return {"files": files, "count": len(files)}
 
 

@@ -73,6 +73,10 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create valid PDF fixture in the test container."
     }
+    docker exec $container sh -c "cp /data/source/handoff.pdf /data/source/second.pdf"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not create second scan fixture."
+    }
 
     $payload = @{ destinees = @("Destinee A", "Destinee B", "Shared") } | ConvertTo-Json
     $updated = Invoke-RestMethod -Uri "$baseUrl/api/classification/config" -Method Post `
@@ -80,12 +84,15 @@ try {
     Assert-Equal $updated.destinees.Count 3 "Updated destinee count mismatch"
 
     $scan = Invoke-RestMethod -Uri "$baseUrl/api/classification/scan" -Method Post
-    Assert-Equal $scan.count 1 "Completed PDF scan count mismatch"
+    Assert-Equal $scan.count 2 "Completed PDF scan count mismatch"
     Assert-Equal $scan.files[0].name "handoff.pdf" "Scanned filename mismatch"
+    Assert-Equal $scan.files[1].name "second.pdf" "Sorted scanned filename mismatch"
     Assert-Equal $scan.files[0].status "received" "Initial document status mismatch"
+    Remove-Item -Force (Join-Path $sourcePath "second.pdf")
 
     $history = Invoke-RestMethod -Uri "$baseUrl/api/documents/history" -Method Get
-    Assert-Equal $history.count 1 "History count mismatch"
+    Assert-Equal $history.count 2 "History count mismatch"
+    Assert-Equal $history.documents[0].name "handoff.pdf" "History document name mismatch"
     Assert-Equal $history.documents[0].status "received" "History status mismatch"
 
     $document = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get
