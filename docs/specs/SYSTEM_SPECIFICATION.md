@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-A budget-friendly, configurable document processing pipeline with AI-assisted UI hosted on Synology NAS. The system features a pluggable storage architecture supporting multiple document sources (Google Drive, local NAS, SharePoint, etc.) and destinations, with a web-based configuration interface. Lightweight local execution (UI, PDF processing, splitting) complements cheap cloud AI micro-services (vision/text classification), delivering a responsive user experience with strict cost controls and operational flexibility.
+A budget-friendly, configurable document processing pipeline with AI-assisted UI hosted on Synology NAS. n8n handles external ingestion and places incoming files in a mounted local source directory. The classifier owns local processing, first-level destinee classification, and output routing beneath configurable local folders. Lightweight local execution complements cheap cloud AI micro-services (vision/text classification), delivering a responsive user experience with strict cost controls and operational flexibility.
 
 ---
 
@@ -31,8 +31,8 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
 │                                                                      │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │ Frontend Layer                                                 │ │
-│  │ • React / Next.js Web Application                             │ │
-│  │ • Storage Backend Configuration UI (Source & Destination)     │ │
+│  │ • Native HTML, CSS, and browser JavaScript                   │ │
+│  │ • Destinee Configuration UI                                  │ │
 │  │ • Client-side PDF rendering & manipulation                    │ │
 │  │ • Interactive split point visualization                       │ │
 │  │ • Real-time thumbnail generation                              │ │
@@ -45,7 +45,7 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
 │  │ • Tesseract OCR (optional, local)                              │ │
 │  │ • Local embeddings computation                                 │ │
 │  │ • Storage Backend Manager (abstract factory pattern)           │ │
-│  │ • Pluggable source/destination backends                        │ │
+│  │ • n8n handoff monitoring and local output routing               │ │
 │  │ • API orchestration & caching                                  │ │
 │  └────────────────────────────────────────────────────────────────┘ │
 │                                                                      │
@@ -73,7 +73,8 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
     │ • Local NAS Storage                                          │
     │ • SharePoint / Microsoft 365                                 │
     │ • Dropbox (future)                                           │
-    │ • Archive raw originals (always to configured source)        │
+    │ • Raw originals: /volume1/Archive/Originals_RAW              │
+    │ • Destinee output: /volume1/Archive/Classified/<destinee>/  │
     └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -81,7 +82,7 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
 
 | Component | Purpose | Technology | Resource Requirement |
 |-----------|---------|-----------|----------------------|
-| Frontend | User Interface + Config | React/Next.js + TypeScript | ~200MB RAM |
+| Frontend | User Interface + Config | Native HTML, CSS, JavaScript | Static files |
 | Backend | API & Business Logic | FastAPI + Python 3.9+ | ~400MB RAM |
 | PDF Engine | Document Manipulation | PyMuPDF | Native binary (~50MB) |
 | OCR Engine | Text Extraction (Optional) | Tesseract OCR | ~300MB (if installed) |
@@ -120,21 +121,17 @@ Python 3.9+
 
 **Frontend:**
 ```
-Node.js 18+
-├── React 18+
-├── Next.js 14+
-├── TypeScript 5+
-├── pdf-lib (client-side PDF manipulation)
-├── axios (API client)
-└── tailwindcss (styling)
+Browser runtime only
+├── Native HTML
+├── Native CSS
+└── Native JavaScript (no npm packages or Node.js runtime)
 ```
 
 **Deployment:**
 ```
 Docker & Docker Compose
 ├── Official Python 3.11 image
-├── Node.js 18 build stage
-└── Multi-stage build for size optimization
+└── Static frontend files served by the web server
 ```
 
 ### 2.3 AI Service Integration
@@ -155,16 +152,16 @@ Docker & Docker Compose
 - Tesseract OCR (one-time CPU cost, no API)
 - Local header detection via regex/heuristics
 
-### 2.4 Data Flow (Pluggable Sources & Destinations)
+### 2.4 Data Flow (n8n Ingestion & Local Classification)
 
 ```
-[Source Backend] (Google Drive, Local NAS, SharePoint, etc.)
-    ↓
-[Fetch PDF] → Source backend API or local file I/O
+[n8n Ingestion Workflow] (external source is configured in n8n)
+  ↓
+[Handoff] → Write completed PDF to /volume1/Archive/Originals_RAW
     ↓
 [Store Locally] → Cache to /volume1/Temp/processing/{doc_id}/
     ↓
-[Archive Original] → Immutable copy to configured archive backend
+[Archive Original] → Original remains in /volume1/Archive/Originals_RAW
     ↓
 [Extract Text] → PyMuPDF (vector PDF) or Tesseract (scanned)
     ↓
@@ -178,12 +175,14 @@ Docker & Docker Compose
     ↓
 [Finalize] → Backend slices PDF, applies rotation, generates output names
     ↓
-[Export] → Write to destination backend (Google Drive, SharePoint, NAS, etc.)
+[Classify Destinee] → Select one configured destinee (for example Destinee A, my girlfriend, her parents)
+  ↓
+[Export] → Write to /volume1/Archive/Classified/{destinee}/
     ↓
 [Cleanup] → Remove temp files from /volume1/Temp/ after successful export
 ```
 
-**Architecture Benefit:** Users select source and destination via web UI; no code changes needed.
+**Architecture Boundary:** n8n owns external source fetching. The classifier web UI owns destinee configuration; no source credentials or external fetch implementation is required in the classifier.
 
 ---
 
@@ -207,14 +206,11 @@ Docker & Docker Compose
 - `POST /api/export` - Finalize and export to destination
 - `GET /api/export-status/{export_id}` - Check export progress
 
-**Storage Backend Configuration:**
-- `GET /api/storage/backends` - List available backend types
-- `GET /api/storage/config` - Get current source/destination configuration
-- `POST /api/storage/config` - Update storage configuration
-- `POST /api/storage/test-connection` - Test credentials for a backend
-- `GET /api/storage/{backend_type}/folders` - List folders in backend (requires auth)
-- `POST /api/storage/credentials` - Store encrypted credentials
-- `DELETE /api/storage/credentials/{backend_id}` - Remove credentials
+**Ingestion and Classification Configuration:**
+- `GET /api/ingestion/status` - Report n8n handoff and input-directory status
+- `GET /api/classification/config` - Get configured destinees and fixed paths
+- `POST /api/classification/config` - Add, rename, remove, or reorder destinees
+- `POST /api/classification/scan` - Scan the n8n input directory for completed PDFs
 
 ### 3.2 AI API Integration
 
@@ -264,9 +260,17 @@ Request Body:
 
 ---
 
-## 3.3 Storage Backend Architecture (Pluggable)
+## 3.3 Storage and Ingestion Architecture
 
-The system uses an **abstract factory pattern** to support multiple storage backends for both document ingestion (source) and export (destination). This enables users to configure their workflow via the web UI without code changes.
+External source integrations are deliberately outside the classifier. n8n fetches documents from email, Google Drive, or any other configured source and writes completed PDFs to the container's mounted input directory. The classifier uses local file I/O for the initial source and destination paths. This keeps source credentials and workflow orchestration in n8n while allowing the web UI to configure business-level destinees.
+
+**Runtime directories:**
+- Input: `/volume1/Archive/Originals_RAW`
+- Classified output root: `/volume1/Archive/Classified/`
+- Destinee output: `/volume1/Archive/Classified/{destinee}/`
+- Processing temporary files: `/volume1/Temp/processing/{doc_id}/`
+
+The existing `StorageBackend` abstraction remains available for a future external output provider, but it is not part of the initial n8n/local implementation path.
 
 ### 3.3.1 Backend Interface (Abstract Base Class)
 
@@ -338,57 +342,38 @@ class StorageBackend(ABC):
 
 ### 3.3.3 Backend Configuration Management
 
-**Storage Configuration (persisted in database):**
+**Classification Configuration (persisted in database):**
 
 ```json
 {
   "storage_config": {
-    "source": {
-      "type": "google_drive",
-      "backend_id": "source-gd-1",
-      "credentials_key": "gd_creds_2026",
-      "folder_id": "1a2b3c4d5e6f7g8h9i0j",
-      "folder_name": "Document Inbox",
-      "account": "documents@company.com"
+    "ingestion": {
+      "provider": "n8n",
+      "input_path": "/volume1/Archive/Originals_RAW"
     },
-    "destination": {
-      "type": "google_drive",
-      "backend_id": "dest-gd-1",
-      "credentials_key": "gd_creds_2026",
-      "folder_id": "9z8y7x6w5v4u3t2s1r0q",
-      "folder_name": "Processed Documents",
-      "account": "documents@company.com"
-    },
-    "archive": {
-      "type": "local_nas",
-      "path": "/volume1/Archive/Originals_RAW"
+    "classification": {
+      "output_root": "/volume1/Archive/Classified/",
+      "destinees": ["Destinee A", "Destinee B", "Destinee C"]
     }
   }
 }
 ```
 
-### 3.3.4 Storage Backend Selection UI
+### 3.3.4 Destinee Configuration UI
 
-Users configure storage via web interface panel:
+Users configure first-level classification destinations via the web interface panel:
 
 ```
-┌─ Storage Configuration ────────────────────────────────┐
+┌─ Classification Configuration ─────────────────────────┐
 │                                                        │
-│ SOURCE: Google Drive                                  │
-│  ├─ Account: documents@company.com                   │
-│  ├─ Folder: Document Inbox                           │
-│  └─ [Change] [Test Connection]                       │
+│ INGESTION: n8n                                          │
+│  ├─ Input: /volume1/Archive/Originals_RAW              │
+│  └─ Status: Waiting for n8n handoff                    │
 │                                                        │
-│ DESTINATION: Google Drive                             │
-│  ├─ Account: documents@company.com                   │
-│  ├─ Folder: Processed Documents                      │
-│  └─ [Change] [Test Connection]                       │
+│ CLASSIFIED OUTPUT: /volume1/Archive/Classified/        │
+│  ├─ Destinees: Destinee A, Destinee B, Destinee C         │
+│  └─ [Add destinee] [Save configuration]                │
 │                                                        │
-│ ARCHIVE (immutable): Local NAS                        │
-│  ├─ Path: /volume1/Archive/Originals_RAW             │
-│  └─ Storage: 2.3 TB / 5.0 TB                          │
-│                                                        │
-│ [Add Backend] [Remove] [Save Configuration]           │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -396,21 +381,25 @@ Users configure storage via web interface panel:
 
 ## 4. Database & Storage Schema
 
-### 4.1 File System Layout (Local NAS - Temporary & Archive)
+### 4.1 File System Layout (n8n Input & Local Classified Output)
 
 The NAS storage is used for:
-- **Temporary processing** (documents in transit, pending finalization)
-- **Archive** (immutable originals from source backend)
-- **Cache** (thumbnails, renderings)
+- **Raw input** (completed PDFs handed off by n8n)
+- **Classified output** (one directory per configured destinee)
+- **Temporary processing** (thumbnails, renderings, and analysis state)
 
 NAS volumes (if using local NAS as archive backend):
 
 ```
 /volume1/
 ├── Archive/
-│   └── Originals_RAW/
-│       ├── {timestamp}_{uuid}_original.pdf (immutable copy from source)
-│       └── metadata.json
+│   ├── Originals_RAW/
+│   │   ├── {timestamp}_{uuid}_original.pdf (n8n handoff)
+│   │   └── metadata.json
+│   └── Classified/
+│       ├── Destinee A/
+│       ├── Destinee B/
+│       └── Destinee C/
 ├── Temp/
 │   ├── processing/
 │   │   └── {doc_id}/
@@ -427,7 +416,7 @@ NAS volumes (if using local NAS as archive backend):
     └── (system backups, not user documents)
 ```
 
-**Note:** If source/destination backends are configured (Google Drive, SharePoint, etc.), final documents are NOT stored on NAS; they're written directly to the destination backend. NAS only holds temporary processing files and archives of originals.
+**Note:** n8n is responsible for external source access. The initial classifier implementation reads from and writes to the mounted NAS paths; each configured destinee maps to a directory below `/volume1/Archive/Classified/`.
 
 ### 4.2 Metadata Structure
 

@@ -9,7 +9,7 @@ Building a budget-friendly, local-first document processing pipeline with an AI-
        │ (Uploads Multi-page PDF)
        ▼
 [ Synology DS923+ (Docker Container) ]
-  ├── Frontend: React / Next.js
+  ├── Frontend: Native HTML / CSS / browser JavaScript
   ├── Backend: FastAPI (Python) + PyMuPDF
   └── Local OCR/Features: Tesseract OCR or Fast Embeddings
        │
@@ -74,8 +74,7 @@ To detect where a 50-page batch scan should be split, you don't need expensive v
 
 To write the code for this application yourself:
 
-1. **Cursor / VS Code + Claude 3.5 Sonnet:** Cursor or GitHub Copilot using **Claude 3.5 Sonnet** as the underlying LLM is currently top-tier for full-stack web generation (React + Python/FastAPI). It handles canvas rendering, PDF manipulation logic, and API wiring smoothly.
-2. **v0.dev (by Vercel):** Ideal for rapidly generating the **React UI** frontend. You can describe: *"A split-screen PDF document classifier with a sidebar showing page thumbnails, split-point toggles, rotation controls, and metadata form fields."*
+1. **VS Code + GitHub Copilot:** Use the existing project guidance to build the native browser interface and FastAPI backend.
 
 ---
 
@@ -84,8 +83,8 @@ To write the code for this application yourself:
 ### A. Web Application Hosting
 
 * **Platform:** Host on your **Synology DS923+ via Docker (Container Manager)**.
-* **Architecture:** Wrap the FastAPI backend and React frontend into a `docker-compose.yml` file.
-* **NAS Resource Note:** The AMD Ryzen R1600 CPU and base 4GB RAM on the DS923+ are more than enough to run FastAPI, NodeJS/React, and PyMuPDF. Upgrading the RAM to 8GB or 16GB is recommended if running Tesseract OCR heavily on the NAS CPU.
+* **Architecture:** Serve the checked-in native frontend alongside the FastAPI backend in `docker-compose.yml`.
+* **NAS Resource Note:** The AMD Ryzen R1600 CPU and base 4GB RAM on the DS923+ are more than enough to run FastAPI, static browser files, and PyMuPDF. Upgrading the RAM to 8GB or 16GB is recommended if running Tesseract OCR heavily on the NAS CPU.
 
 ### B. Original File Archiving & Output Storage
 
@@ -93,7 +92,7 @@ To preserve original scans while exporting split documents:
 
 * **Originals Preservation:** When a scan arrives, write it immediately to an immutable **` /volume1/Archive/Originals_RAW/`** folder on your Synology NAS with a timestamp ID.
 * **Destination Options:**
-1. **Local NAS (Recommended First Step):** Save split, rotated, and renamed PDFs directly into folder structures on your Synology NAS (e.g., `/volume1/Documents/Invoices/2026/`).
+1. **Local NAS (Recommended First Step):** Save split, rotated, and renamed PDFs directly into configurable destinee folders on your Synology NAS (e.g., `/volume1/Archive/Classified/Destinee A/`).
 2. **SharePoint / Microsoft 365:** Use the official `@microsoft/microsoft-graph-client` SDK in your backend to auto-upload finalized files to SharePoint document libraries.
 3. **Google Drive:** Use `google-api-python-client` with a Service Account to write files to Google Drive folders.
 

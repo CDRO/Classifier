@@ -1,0 +1,121 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "document-classifier"
+version = "1.0.0-tier1"
+description = "Intelligent document processing pipeline with pluggable storage backends"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Development Team"}
+]
+
+dependencies = [
+    # Web Framework
+    "fastapi>=0.104.1",
+    "uvicorn[standard]>=0.24.0",
+    "python-multipart>=0.0.6",
+    "pydantic>=2.0.0",
+    
+    # PDF Processing
+    "PyMuPDF>=1.23.0",  # fitz
+    
+    # Google Drive API (optional for now)
+    # "google-auth-oauthlib>=1.1.0",
+    # "google-auth-httplib2>=0.2.0",
+    # "google-api-python-client>=2.100.0",
+    
+    # Async Support
+    "httpx>=0.25.0",
+    
+    # OCR (optional fallback)
+    # "pytesseract>=0.3.10",
+    
+    # Logging & Monitoring
+    "python-json-logger>=2.0.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.1",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.1",
+    "hypothesis>=6.88.0",
+    
+    # Code Quality
+    "mypy>=1.5.0",
+    "flake8>=6.1.0",
+    "black>=23.10.0",
+    "bandit>=1.7.5",
+    "safety>=2.3.5",
+    
+    # Development
+    "ipython>=8.15.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+asyncio_mode = "auto"
+addopts = """
+    -v
+    --strict-markers
+    --tb=short
+    --cov=src
+    --cov-report=term-missing
+    --cov-report=html
+    --cov-fail-under=85
+"""
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+strict = true
+allow_untyped_defs = false
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+plugins = ["pydantic.mypy"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    ".venv",
+    ".mypy_cache",
+    ".pytest_cache",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+tests = ["B201", "B301", "B302", "B303", "B304", "B305", "B306", "B307", "B308", "B309", "B310", "B311", "B312", "B313", "B314", "B315", "B316", "B317", "B318", "B319", "B320", "B321", "B322", "B323", "B324", "B325"]

@@ -465,11 +465,11 @@ async def get_document(doc_id: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 ```
 
-### 4.2 Frontend (React/Next.js)
+### 4.2 Frontend (Native Browser JavaScript)
 
 **DO:**
-- ✅ Separate concerns: components, hooks, utilities
-- ✅ Use TypeScript; no untyped `any`
+- ✅ Separate concerns across HTML, CSS, and JavaScript files
+- ✅ Use browser-native APIs and keep the frontend dependency-free
 - ✅ Handle API errors gracefully (show user feedback)
 - ✅ Test user interactions (not implementation details)
 - ✅ Lazy load large components
@@ -480,7 +480,8 @@ async def get_document(doc_id: str):
 - ❌ Store sensitive data in localStorage
 - ❌ Make API calls in useEffect without cleanup
 - ❌ Deeply nest components (extract to separate files)
-- ❌ Mix styling approaches (stick to Tailwind)
+- ❌ Add Node.js, npm, or package-manager runtime dependencies
+- ❌ Add third-party browser libraries unless compiled assets are checked in
 - ❌ Ignore CORS errors; debug root cause
 - ❌ Render without error boundaries
 
@@ -537,15 +538,13 @@ bandit               # Security scanning
 black                # Code formatting (opinionated, saves debate)
 
 # Frontend
-react                # UI library
-next.js              # React framework
-typescript           # Type safety
-tailwindcss          # Styling (utility-first)
+# Native HTML, CSS, and browser JavaScript only.
+# Third-party libraries require explicit approval and checked-in compiled assets.
 ```
 
 **Never add without explicit approval:**
 - ORM libraries (use raw queries or query builder)
-- Full-stack frameworks (use FastAPI + React separately)
+- Node.js/npm frontend toolchains (use static native browser assets)
 - ML frameworks (use cloud APIs instead)
 - Messaging queues (simple task queue first)
 

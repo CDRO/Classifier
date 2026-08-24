@@ -60,13 +60,14 @@ Before deploying the Document Processing Pipeline to production, verify the foll
   ```
   # Via DSM → Storage Manager → Create Volume (if new storage)
   Volume 1 (system): /volume1/
-  ├── Archive/                    # Immutable raw PDFs
-  ├── Documents/                  # Final output
+  ├── Archive/
+  │   ├── Originals_RAW/          # n8n input handoff and raw originals
+  │   └── Classified/             # First classification by destinee
   ├── Temp/                       # Processing cache
   └── Backups/                    # Nightly backups
   ```
   - [ ] Archive volume has 1TB+ capacity
-  - [ ] Documents volume readable/writable by Docker container
+  - [ ] Archive volume readable/writable by Docker container
   - [ ] Temp volume has 50GB free (for concurrent processing)
 
 ### 1.4 Administrator Access
@@ -192,9 +193,10 @@ LOG_LEVEL=INFO
 GEMINI_API_KEY=your-gemini-api-key-here
 CLAUDE_API_KEY=your-claude-api-key-here (optional)
 
-# Temporary Storage (Local NAS - for processing cache & backups)
+# Local paths (n8n handoff, processing cache, and classified output)
 TEMP_PATH=/volume1/Temp
-ARCHIVE_BASE_PATH=/volume1/Archive
+RAW_INPUT_PATH=/volume1/Archive/Originals_RAW
+CLASSIFIED_OUTPUT_PATH=/volume1/Archive/Classified
 
 # FastAPI Configuration
 API_HOST=0.0.0.0
@@ -205,12 +207,9 @@ API_WORKERS=4
 # DATABASE_URL=postgresql://user:password@localhost:5432/classifier
 # (Optional: if using PostgreSQL; otherwise SQLite is default)
 
-# Storage Backend Configuration
-# NOTE: Source and destination backends are configured via Web UI, not here.
-# Default storage backends available:
-#   - google_drive (requires Google Cloud credentials)
-#   - local_nas (uses /volume1/ paths)
-#   - sharepoint (future)
+# Ingestion
+# External source fetching is configured in n8n.
+# The classifier watches RAW_INPUT_PATH; source credentials are not stored here.
 ```
 
 **Important:** Storage source/destination is configured via the Web UI Settings panel, not via environment variables. See section 5.1 for initial setup.
@@ -250,7 +249,7 @@ services:
     
     volumes:
       - /volume1/Archive:/volume1/Archive
-      - /volume1/Documents:/volume1/Documents
+      - /volume1/Archive:/volume1/Archive
       - /volume1/Temp:/volume1/Temp
       - /volume1/docker/classifier/logs:/app/logs
       - /volume1/docker/classifier/config:/config
@@ -280,7 +279,7 @@ services:
       - "3000:3000"
     
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
+      - API_URL=http://localhost:8000
       - NODE_ENV=production
     
     depends_on:
@@ -362,19 +361,39 @@ MAX_CONCURRENT_JOBS=3
 sudo docker-compose restart classifier-backend
 ```
 
-### 4.2 Configuring Storage Backends (Via Web UI)
+### 4.2 Configuring Ingestion and Destinees
 
-The document source and destination are configured via the **Storage Settings** panel in the web interface. This allows non-technical users to switch backends without restarting services.
+The external document source is configured in n8n. The classifier web interface configures the first-level destinees and writes classified files beneath `/volume1/Archive/Classified/`.
 
-**Access Storage Configuration:**
+**Access Classification Configuration:**
 1. Navigate to http://192.168.1.100:3000
 2. Click "Settings" (gear icon)
-3. Select "Storage Configuration"
-4. Configure source, destination, and archive backends
+3. Select "Classification Configuration"
+4. Add, rename, remove, and order destinees
 
-#### 4.2.1 Google Drive Setup (Recommended)
+#### 4.2.1 n8n Ingestion Handoff
 
-To use Google Drive as source and/or destination:
+Configure the n8n workflow to:
+
+1. Fetch PDFs from the desired external source.
+2. Write each PDF to `/volume1/Archive/Originals_RAW` through the shared Docker volume.
+3. Preserve the original filename and avoid writing partial files. Use a temporary filename and rename after the write completes.
+4. Let the classifier detect completed PDFs in that directory.
+
+The classifier does not fetch email or Google Drive files itself. n8n owns those credentials, retries, and source-specific logic.
+
+#### 4.2.2 Destinee Configuration
+
+1. Open **Settings → Classification Configuration**.
+2. Confirm the fixed paths shown for input and classified output.
+3. Add the initial destinees: `Destinee A`, `Destinee B`, and `Destinee C`.
+4. Save the configuration.
+5. The application creates or uses `/volume1/Archive/Classified/<destinee>/` for each configured value.
+6. New destinees can be added in the UI without changing n8n or container configuration.
+
+#### 4.2.3 Google Drive Setup (n8n Responsibility)
+
+To use Google Drive as an ingestion source, configure it in n8n rather than in the classifier:
 
 **Step 1: Create Google Cloud Service Account**
 
@@ -393,11 +412,11 @@ To use Google Drive as source and/or destination:
 #    → Grant "Editor" permission
 ```
 
-**Step 2: Upload Credentials to NAS**
+**Step 2: Configure n8n Credentials**
 
 ```bash
-# Via SCP or SFTP, upload the JSON key file to:
-/volume1/docker/classifier/config/gd-service-account.json
+# Store the service account credential in n8n's credential store.
+# Do not add Google credentials to the classifier .env or web UI.
 
 # Or via SSH:
 ssh admin@192.168.1.100
@@ -405,17 +424,15 @@ sudo nano /volume1/docker/classifier/config/gd-service-account.json
 # Paste the JSON content
 ```
 
-**Step 3: Configure in Web UI**
+**Step 3: Configure the n8n Workflow**
 
-1. In Storage Configuration panel, click "Add Backend"
-2. Select "Google Drive"
-3. Upload service account JSON file or paste credentials
-4. Click "Test Connection" → should show "✓ Connected"
-5. Select source folder: "Document Inbox" (or create new)
-6. Select destination folder: "Processed Documents" (or create new)
-7. Click "Save Configuration"
+1. Select the Google Drive node and n8n credential.
+2. Select the source folder, for example `Document Inbox`.
+3. Configure the output node to write into the shared `Originals_RAW` mount.
+4. Test that a complete PDF appears in `/volume1/Archive/Originals_RAW`.
+5. Configure destinees separately in the classifier web UI.
 
-#### 4.2.2 Local NAS Backend (Fallback/Temporary)
+#### 4.2.4 Local NAS Paths
 
 Local NAS storage is always available as a fallback:
 
@@ -424,13 +441,13 @@ Archive: /volume1/Archive/Originals_RAW (immutable originals)
 Temp: /volume1/Temp (processing cache)
 ```
 
-To use Local NAS as destination:
-1. Storage Configuration → Select "Local NAS" for destination
-2. Enter folder path: `/volume1/Documents/Invoices/` (example)
-3. Click "Test Connection" → should show "✓ Connected"
-4. Click "Save Configuration"
+To use the local classified output:
+1. Open Classification Configuration.
+2. Confirm output root: `/volume1/Archive/Classified/`
+3. Save the configured destinees.
+4. The application creates one folder below the output root per destinee.
 
-#### 4.2.3 SharePoint Integration (Future)
+#### 4.2.5 SharePoint Integration (Future n8n Source)
 
 Future support for Microsoft SharePoint:
 - Requires Azure AD app registration
@@ -441,28 +458,28 @@ Future support for Microsoft SharePoint:
 
 ## 5. Initial Startup & Verification
 
-### 5.1 Storage Configuration & First Boot
+### 5.1 Ingestion and Classification Configuration & First Boot
 
 **First time setup:**
 
 1. Wait for backend to start (30-40 seconds)
 2. Navigate to http://192.168.1.100:3000
-3. Go to Settings → Storage Configuration
-4. Select a source backend (Google Drive or Local NAS)
-5. Select a destination backend
-6. Test connections
+3. Go to Settings → Classification Configuration
+4. Confirm input: `/volume1/Archive/Originals_RAW`
+5. Confirm output root: `/volume1/Archive/Classified/`
+6. Configure the initial destinees: `Destinee A`, `Destinee B`, `Destinee C`
 7. Save configuration
 
 **Startup logs:**
 
 ```bash
-# Check that storage backends initialized successfully
-sudo docker-compose logs classifier-backend | grep -i storage
+# Check that the n8n handoff and local paths initialized successfully
+sudo docker-compose logs classifier-backend | grep -Ei "n8n|Originals_RAW|Classified"
 
 # Expected output:
-# [2026-08-17 14:30:00] Storage Manager initialized
-# [2026-08-17 14:30:01] Google Drive backend ready
-# [2026-08-17 14:30:02] Local NAS backend ready
+# [2026-08-24 14:30:00] n8n ingestion monitor initialized
+# [2026-08-24 14:30:01] Raw input ready: /volume1/Archive/Originals_RAW
+# [2026-08-24 14:30:02] Classified output ready: /volume1/Archive/Classified/
 ```
 
 ### 5.2 Health Check Dashboard
@@ -481,7 +498,7 @@ curl http://localhost:8000/metrics | grep pdf_processing
 ### 5.3 API Smoke Tests
 
 ```bash
-# Test health endpoint (includes storage backend status)
+# Test health endpoint (includes n8n handoff status)
 curl -X GET http://localhost:8000/health | jq .
 
 # Expected response should include:
@@ -490,20 +507,17 @@ curl -X GET http://localhost:8000/health | jq .
 #   "checks": {
 #     "pdf_engine": "ok",
 #     "ai_api": "ok",
-#     "storage": "ok",
-#     "source_backend": "connected",
-#     "destination_backend": "connected"
+#     "ingestion": "ready",
+#     "raw_input": "/volume1/Archive/Originals_RAW",
+#     "classified_output": "/volume1/Archive/Classified/"
 #   }
 # }
 
-# Test storage configuration endpoint
-curl -X GET http://localhost:8000/api/storage/config | jq .
+# Test classification configuration endpoint
+curl -X GET http://localhost:8000/api/classification/config | jq .
 
-# Test upload endpoint
-curl -X POST http://localhost:8000/api/upload \
-  -F "file=@/path/to/test.pdf" \
-  -H "Authorization: Bearer $API_KEY"
-  # Should now upload to configured source backend
+# Test n8n handoff status
+curl -X GET http://localhost:8000/api/ingestion/status | jq .
 ```
 
 ### 5.4 Frontend Verification
@@ -511,14 +525,14 @@ curl -X POST http://localhost:8000/api/upload \
 Navigate to: `http://192.168.1.100:3000`
 
 **Expected UI sections:**
-- **Storage Configuration** (Settings → Storage): Shows current source/destination backends with test/change options
+- **Classification Configuration** (Settings → Classification): Shows n8n status, fixed paths, and destinees
 - **Upload Area:** Drag-and-drop or click to upload PDFs from configured source
 - **Document Processing History:** Lists recent uploads and their status
 - **Settings Panel:** Configure storage, user preferences, credentials
 
 **First-time checklist:**
-- [ ] Storage Configuration shows source backend connected
-- [ ] Storage Configuration shows destination backend connected
+- [ ] n8n handoff status is visible
+- [ ] Classification Configuration shows all destinees
 - [ ] Upload area displays (ready to receive documents)
 - [ ] Settings accessible and functional
 
@@ -583,20 +597,16 @@ curl -X POST http://localhost:8000/api/auth/register \
 
 ## 7. Daily Operations
 
-### 7.1 Upload Documents (From Configured Source)
+### 7.1 Process Documents (From n8n Handoff)
 
-Documents can be ingested from:
-- **Google Drive:** Auto-monitored folder specified in Storage Configuration
-- **Local NAS:** Manual upload via web UI to /volume1/Documents/
-- **Manual Upload:** Via web UI file picker
+Documents are ingested by n8n and handed off as completed PDFs in `/volume1/Archive/Originals_RAW`.
 
-**Via Web UI:**
+**Via n8n:**
 1. Navigate to http://192.168.1.100:3000
-2. Click "Upload Documents" or drag-and-drop PDF
-3. (If Google Drive source is configured, this uploads to configured source folder)
-4. Wait for analysis
-5. Review split points
-6. Click "Finalize" to export to configured destination
+2. Confirm the n8n handoff status is healthy
+3. Wait for the PDF to appear in the raw input directory
+4. Review the analysis and detected destinee
+5. Finalize; output is written to `/volume1/Archive/Classified/<destinee>/`
 
 **Via API (Upload to Configured Source Backend):**
 
@@ -811,7 +821,7 @@ echo "[$(date)] Backup complete: $BACKUP_FILE"
 # Full backup to NAS storage
 sudo docker-compose exec classifier-backend \
   tar -czf /volume1/Backups/manual_backup_$(date +%Y%m%d).tar.gz \
-  /volume1/Archive/ /volume1/Documents/
+  /volume1/Archive/
 
 # Backup to external USB
 # Insert USB, mount via DSM, then:
@@ -856,7 +866,7 @@ sudo docker-compose logs classifier-backend | tail -50
 # 2. API key invalid/missing
 #    Fix: Verify GEMINI_API_KEY in .env
 # 3. Storage path permissions
-#    Fix: sudo chmod 755 /volume1/Archive /volume1/Documents
+#    Fix: sudo chmod 755 /volume1/Archive
 ```
 
 ### 10.2 Frontend Cannot Connect to Backend
@@ -869,7 +879,7 @@ curl http://localhost:8000/health
 sudo docker network inspect classifier-net
 
 # If frontend shows "Cannot connect to API":
-# 1. Verify REACT_APP_API_URL in docker-compose.yml
+# 1. Verify API_URL in docker-compose.yml
 # 2. Restart frontend:
 sudo docker-compose restart classifier-frontend
 ```
@@ -884,43 +894,29 @@ df -h /volume1/
 # 1. Clear old temp files
 sudo rm -rf /volume1/Temp/processing/*
 
-# 2. Archive old documents
-sudo mv /volume1/Documents/2025 /volume1/Archive/
+# 2. Review old classified output
+sudo find /volume1/Archive/Classified -maxdepth 2 -type f -mtime +365
 
 # 3. Check file permissions
-sudo chmod 755 /volume1/Documents
+sudo chmod 755 /volume1/Archive /volume1/Archive/Originals_RAW /volume1/Archive/Classified
 ```
 
-### 10.4 Storage Backend Connection Issues
+### 10.4 n8n Handoff or Classified Output Issues
 
 ```bash
-# Test Google Drive connection from web UI
-# Settings → Storage Configuration → Test Connection
+# Check the n8n handoff status
+curl -X GET http://localhost:8000/api/ingestion/status | jq .
 
-# Or via API:
-curl -X POST http://localhost:8000/api/storage/test-connection \
-  -H "Content-Type: application/json" \
-  -d '{
-    "backend_type": "google_drive",
-    "credentials": {
-      "type": "service_account",
-      "project_id": "your-project"
-    }
-  }'
+# Check the classifier paths
+ls -la /volume1/Archive/Originals_RAW
+ls -la /volume1/Archive/Classified
 
-# Expected: {"connection_ok": true}
-
-# If connection fails:
-# 1. Verify service account JSON is valid
-#    - Download fresh key from Google Cloud Console
-#    - Upload to Web UI: Settings → Storage Configuration
-# 2. Verify service account has access to shared folders
-#    - Share Google Drive folder with service account email
-#    - Grant "Editor" permission
-# 3. Check Google Cloud API quotas
-#    - Visit: https://console.cloud.google.com/iam-admin/quotas
-# 4. Verify storage configuration saved
-#    - API: curl http://localhost:8000/api/storage/config | jq .
+# If no PDF arrives:
+# 1. Check the n8n workflow execution and source credentials.
+# 2. Confirm n8n writes to the shared Originals_RAW mount.
+# 3. Confirm files are renamed from temporary names only after writing completes.
+# 4. Check that the container has read/write permission on Archive.
+# 5. Confirm destinee configuration in Settings → Classification Configuration.
 ```
 
 ### 10.5 AI API Calls Timing Out
@@ -1046,9 +1042,8 @@ sudo docker-compose exec classifier-backend \
 sudo docker-compose exec classifier-backend \
   pip install --upgrade -r requirements.txt
 
-# Update Node dependencies
-sudo docker-compose exec classifier-frontend \
-  npm install
+# The frontend is static native HTML/CSS/JavaScript.
+# There are no Node.js or npm dependencies to install.
 
 # Rebuild images with new dependencies
 sudo docker-compose build --no-cache
@@ -1137,7 +1132,7 @@ sudo docker exec classifier-backend bash        # Shell access
 
 # Storage & Backups
 du -sh /volume1/Archive                         # Archive size
-du -sh /volume1/Documents                       # Documents size
+du -sh /volume1/Archive/Classified             # Classified output size
 tar -czf backup.tar.gz /volume1/Archive         # Manual backup
 
 # API Testing
@@ -1179,23 +1174,20 @@ Upgrade NAS RAM to 16GB.
    - Enabled APIs & services → Enable APIs and Services
    - Search "Google Drive API" → Enable
 
-3. Create/share Google Drive folders
-   - Create "Document Inbox" folder for source
-   - Create "Processed Documents" folder for destination
-   - Right-click each → Share → Add service account email → Editor permission
+3. Configure the n8n workflow
+  - Select the Google Drive source folder, for example "Document Inbox"
+  - Configure n8n to write completed PDFs to `/volume1/Archive/Originals_RAW`
+  - Keep Google credentials in n8n, not in the classifier
 
 4. Configure in classifier
-   - Settings → Storage Configuration
-   - Source Backend: Google Drive
-   - Destination Backend: Google Drive
-   - Upload service account JSON file
-   - Test Connection (should succeed)
-   - Save configuration
+  - Settings → Classification Configuration
+  - Add or edit destinees: `Destinee A`, `Destinee B`, `Destinee C`
+  - Save configuration
 
 5. Verify (first boot)
    - Restart backend: `sudo docker-compose restart classifier-backend`
-   - Check logs: `sudo docker-compose logs classifier-backend | grep "backend ready"`
-   - Should see: `Google Drive backend ready`
+  - Check logs: `sudo docker-compose logs classifier-backend | grep "Raw input ready"`
+  - Should see: `Raw input ready: /volume1/Archive/Originals_RAW`
 
 **Performance:** 
 - Recommended for < 100 docs/day
@@ -1210,13 +1202,13 @@ JWT_SECRET=long-random-string
 ALLOW_EXTERNAL_API_CALLS=false  # Local OCR only
 ```
 
-**Storage:** Use Local NAS backend only (Settings → Storage Configuration → Local NAS)
+**Storage:** Use the local n8n handoff and classified output paths only.
 
 ```bash
 # Create local storage directories on NAS
-sudo mkdir -p /volume1/Inbox
-sudo mkdir -p /volume1/Outbox
-sudo chmod 755 /volume1/Inbox /volume1/Outbox
+sudo mkdir -p /volume1/Archive/Originals_RAW
+sudo mkdir -p /volume1/Archive/Classified
+sudo chmod 755 /volume1/Archive/Originals_RAW /volume1/Archive/Classified
 ```
 
 ### Scenario 3: Multi-User Collaborative Workflow

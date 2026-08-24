@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Classifier | Destinee configuration</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">DOCUMENT CLASSIFIER</p>
+        <h1>Classification settings</h1>
+      </div>
+      <div class="status-pill"><span class="status-dot"></span> n8n handoff ready</div>
+    </header>
+
+    <section class="hero-band" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow accent">FIRST-LEVEL ROUTING</p>
+        <h2 id="page-title">Where should each document land?</h2>
+        <p class="lede">Configure the people or groups used for the first classification pass. External fetching stays in n8n.</p>
+      </div>
+      <div class="route-mark" aria-hidden="true"><span>RAW</span><i></i><span>CLASSIFIED</span></div>
+    </section>
+
+    <section class="path-grid" aria-label="Storage paths">
+      <article class="path-card">
+        <div class="card-label"><span class="icon">IN</span><span>n8n input</span></div>
+        <strong>/volume1/Archive/Originals_RAW</strong>
+        <small>Completed PDFs arrive here</small>
+      </article>
+      <article class="path-card output-card">
+        <div class="card-label"><span class="icon">OUT</span><span>classified output</span></div>
+        <strong>/volume1/Archive/Classified/</strong>
+        <small>One folder is created per destinee</small>
+      </article>
+    </section>
+
+    <section class="workspace-panel" aria-labelledby="destinee-title">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">ROUTING LIST</p>
+          <h2 id="destinee-title">Destinees</h2>
+        </div>
+        <span id="count" class="count">0 configured</span>
+      </div>
+
+      <form id="destinee-form" novalidate>
+        <div id="destinee-list" class="destinee-list"></div>
+        <div id="form-error" class="form-error" role="alert" aria-live="polite"></div>
+        <div class="panel-actions">
+          <button type="button" id="add-destinee" class="button button-secondary"><span aria-hidden="true">+</span> Add destinee</button>
+          <button type="submit" class="button button-primary">Save configuration <span aria-hidden="true">&#8594;</span></button>
+        </div>
+      </form>
+    </section>
+
+    <section class="folder-preview" aria-labelledby="preview-title">
+      <div class="preview-heading">
+        <div>
+          <p class="eyebrow">OUTPUT PREVIEW</p>
+          <h2 id="preview-title">Folder mapping</h2>
+        </div>
+        <span class="preview-root">/volume1/Archive/Classified/</span>
+      </div>
+      <div id="folder-list" class="folder-list"></div>
+    </section>
+
+    <footer><span>Classifier v0.1</span><span>Local routing configuration</span></footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
