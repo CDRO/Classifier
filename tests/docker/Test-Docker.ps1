@@ -132,6 +132,9 @@ try {
     $rotated = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/rotate" -Method Post `
         -ContentType "application/json" -Body (@{ processing_id = $prepared.processing_id; page = 1; rotation = 90 } | ConvertTo-Json)
     Assert-Equal $rotated.rotation 90 "Page rotation mismatch"
+    $rotatedAgain = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/rotate" -Method Post `
+        -ContentType "application/json" -Body (@{ processing_id = $prepared.processing_id; page = 1; rotation = 90 } | ConvertTo-Json)
+    Assert-Equal $rotatedAgain.rotation 180 "Cumulative page rotation mismatch"
     $preparedFile = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/processing/$($prepared.processing_id)/file"
     Assert-Equal $preparedFile.StatusCode 200 "Prepared file response status mismatch"
     $thumbnail = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/processing/$($prepared.processing_id)/pages/1/thumbnail"

@@ -559,7 +559,9 @@ def rotate_document_page(filename: str, request: RotateRequest) -> dict:
         with fitz.open(processing_path) as pdf:
             if request.page > pdf.page_count:
                 raise HTTPException(status_code=422, detail="Page is outside the document")
-            pdf[request.page - 1].set_rotation(request.rotation)
+            page_object = pdf[request.page - 1]
+            effective_rotation = (page_object.rotation + request.rotation) % 360
+            page_object.set_rotation(effective_rotation)
             pdf.save(processing_path.with_suffix(".rotated.pdf"))
         processing_path.with_suffix(".rotated.pdf").replace(processing_path)
         (processing_path.parent / f"page_{request.page:04d}.jpg").unlink(missing_ok=True)
@@ -567,7 +569,11 @@ def rotate_document_page(filename: str, request: RotateRequest) -> dict:
         raise
     except (OSError, fitz.FileDataError) as exc:
         raise HTTPException(status_code=422, detail="Unable to rotate PDF page") from exc
-    return {"processing_id": request.processing_id, "page": request.page, "rotation": request.rotation}
+    return {
+        "processing_id": request.processing_id,
+        "page": request.page,
+        "rotation": effective_rotation,
+    }
 
 
 @app.post("/api/documents/{filename}/split")
