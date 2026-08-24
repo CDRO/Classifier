@@ -92,6 +92,20 @@ async function inspectDocument(filename) {
     reviewFilename.value = preparedDocument.original_name;
     documentPreview.src = `${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/file`;
     pageSummary.textContent = `${preparedDocument.page_count} page${preparedDocument.page_count === 1 ? "" : "s"} prepared for review.`;
+    const configResponse = await fetch(`${API_BASE_URL}/api/classification/config`);
+    if (!configResponse.ok) throw new Error("Configuration lookup failed");
+    const config = await configResponse.json();
+    reviewDestinee.replaceChildren();
+    config.destinees.forEach((destinee) => {
+      const option = document.createElement("option");
+      option.value = destinee;
+      option.textContent = destinee;
+      reviewDestinee.append(option);
+    });
+    analysisProvider.textContent = "Analysis provider: Gemini analyzing...";
+    analysisProvider.className = "analysis-provider provider-gemini";
+    analysisSummary.textContent = "Reading document content...";
+    reviewFilename.value = "Analyzing filename suggestion...";
     const analysisResponse = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/analyze?processing_id=${encodeURIComponent(preparedDocument.processing_id)}`, { method: "POST" });
     if (!analysisResponse.ok) throw new Error("Content analysis failed");
     const analysis = await analysisResponse.json();
@@ -106,15 +120,6 @@ async function inspectDocument(filename) {
       block.className = "page-text-block";
       block.innerHTML = `<strong>Page ${page.page}</strong><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
       pageText.append(block);
-    });
-    const configResponse = await fetch(`${API_BASE_URL}/api/classification/config`);
-    const config = await configResponse.json();
-    reviewDestinee.replaceChildren();
-    config.destinees.forEach((destinee) => {
-      const option = document.createElement("option");
-      option.value = destinee;
-      option.textContent = destinee;
-      reviewDestinee.append(option);
     });
     finalizeButton.disabled = false;
     finalizeStatus.textContent = "";

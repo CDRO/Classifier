@@ -1,6 +1,7 @@
 """Native configuration API for the n8n/local classification workflow."""
 
 import json
+import base64
 import os
 import re
 import shutil
@@ -160,7 +161,7 @@ def analyze_text(text: str, filename: str) -> dict:
     }
 
 
-def analyze_with_gemini(text: str, filename: str) -> Optional[dict]:
+def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optional[dict]:
     if not GEMINI_API_KEY:
         return None
     prompt = (
@@ -170,8 +171,13 @@ def analyze_with_gemini(text: str, filename: str) -> Optional[dict]:
         "confidence (number from 0 to 1), suggested_filename (single safe .pdf filename).\n\n"
         f"Original filename: {filename}\nDocument text:\n{text[:12000]}"
     )
+    parts = [{"text": prompt}]
+    if not text.strip() and pdf is not None:
+        for page in list(pdf)[:4]:
+            image = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False).tobytes("jpeg")
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(image).decode("ascii")}})
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
+        "contents": [{"parts": parts}],
         "generationConfig": {"response_mime_type": "application/json"},
     }
     try:
@@ -393,10 +399,10 @@ def analyze_document(filename: str, processing_id: str) -> dict:
     try:
         with fitz.open(processing_path) as pdf:
             text = "\n".join(page.get_text() for page in pdf)
+            result = analyze_with_gemini(text, filename, pdf) or analyze_text(text, filename)
     except (OSError, fitz.FileDataError) as exc:
         write_document_state(filename, "failed", error="Unable to analyze PDF")
         raise HTTPException(status_code=422, detail="Unable to analyze PDF") from exc
-    result = analyze_with_gemini(text, filename) or analyze_text(text, filename)
     write_document_state(filename, "in_review", processing_id=processing_id, **result)
     return {"status": "in_review", **result}
 
