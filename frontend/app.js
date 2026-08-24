@@ -235,12 +235,29 @@ function renderInbox(files) {
 
     groupedFiles.forEach((file) => {
       const item = document.createElement("div");
-      item.className = `inbox-item${selectedDocument && selectedDocument.filename === file.name ? " is-active" : ""}`;
-      item.setAttribute("aria-current", selectedDocument && selectedDocument.filename === file.name ? "true" : "false");
+      const isSelected = selectedDocument && selectedDocument.filename === file.name;
+      const queuePosition = visibleFiles.findIndex((entry) => entry.name === file.name) + 1;
+      item.className = `inbox-item${isSelected ? " is-active" : ""}`;
+      item.setAttribute("aria-current", isSelected ? "true" : "false");
+      item.setAttribute("data-queue-position", `${queuePosition || 0}`);
       const duplicateNote = file.duplicate_of ? ` · duplicate of ${escapeHtml(file.duplicate_of)}` : "";
       const statusClass = file.duplicate_of ? "warning" : "good";
       const source = formatSourcePath(file.name);
-      item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(source.basename)}</strong><small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · ready in n8n input${duplicateNote}</small></button><button class="dismiss-button" type="button" aria-label="Dismiss ${escapeHtml(file.name)}">Dismiss</button><span class="file-state file-state-${statusClass}">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>`;
+      const queueBadges = [
+        file.duplicate_of ? '<span class="queue-badge queue-badge-warning">Duplicate</span>' : '<span class="queue-badge queue-badge-safe">Unique</span>',
+        isSelected ? '<span class="queue-badge queue-badge-active">Current</span>' : `<span class="queue-badge queue-badge-neutral">#${queuePosition || 0}</span>`
+      ].join("");
+      item.innerHTML = `
+        <button class="inbox-document" type="button">
+          <strong>${escapeHtml(source.basename)}</strong>
+          <small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · ready in n8n input${duplicateNote}</small>
+        </button>
+        <div class="inbox-item-actions">
+          <div class="queue-badges">${queueBadges}</div>
+          <button class="dismiss-button" type="button" aria-label="Dismiss ${escapeHtml(file.name)}">Dismiss</button>
+        </div>
+        <span class="file-state file-state-${statusClass}">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>
+      `;
       item.querySelector(".inbox-document").addEventListener("click", () => inspectDocument(file.name));
       item.querySelector(".dismiss-button").addEventListener("click", () => dismissDocument(file.name));
       group.append(item);
