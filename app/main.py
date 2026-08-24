@@ -27,7 +27,7 @@ TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_ENDPOINT = os.getenv(
     "GEMINI_ENDPOINT",
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
 )
 GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "20"))
 
