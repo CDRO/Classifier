@@ -219,6 +219,8 @@ OCR input uses grayscale rendering at `OCR_RENDER_SCALE` (default `2`) and Tesse
 
 **Local entities:** The fallback extracts up to ten document dates, monetary amounts, and labeled reference numbers from native or OCR text. These fields are advisory signals and remain editable or overridable during review.
 
+**Layout-aware analysis:** The classifier records top-of-first-page text, a first-page title clue, and text lengths per page. These positional signals are supplied to Gemini and retained in the analysis result for future local classification improvements.
+
 **Split workflow:** Selected boundaries create numbered parts in the processing workspace. Users assign an independent filename and destinee to each part. Multi-output finalization writes all outputs, archives the source once, and removes the processing workspace only after every output succeeds.
 
 **Gemini availability:** A `429` quota/rate-limit response or another Gemini request failure is recorded in the mounted analysis-status file. The UI then warns that Gemini is temporarily unavailable and local fallback is active. A later valid Gemini response marks the provider available again and clears the warning.

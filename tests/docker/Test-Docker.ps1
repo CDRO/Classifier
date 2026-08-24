@@ -153,6 +153,9 @@ try {
     if (-not $analysis.title -or -not $analysis.summary) {
         throw "Rich content analysis fields were not returned."
     }
+    if (-not $analysis.layout -or $analysis.layout.page_text_lengths.Count -ne 3) {
+        throw "Layout analysis metadata was not returned for every page."
+    }
     if ($analysis.suggested_filename -notmatch '^2026-08-24_Invoice_handoff\.pdf$') {
         throw "Unexpected suggested filename: $($analysis.suggested_filename)"
     }

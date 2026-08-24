@@ -207,6 +207,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Improve OCR input with grayscale rendering and automatic page segmentation
 - [x] Detect basic document language and expose local classification signals
 - [x] Extract local dates, amounts, and reference numbers
+- [x] Add layout-aware page analysis signals
 - [x] Detect duplicate PDF redelivery with SHA-256 content identity
 - [x] Dismiss inbox PDFs into a separate archive without processing
 - [x] Rotate prepared PDF pages from the review interface

@@ -285,7 +285,7 @@ def analyze_text(text: str, filename: str) -> dict:
     }
 
 
-def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optional[dict]:
+def analyze_with_gemini(text: str, filename: str, pdf: object = None, layout: Optional[dict] = None) -> Optional[dict]:
     if not GEMINI_API_KEY:
         return None
     prompt = (
@@ -295,7 +295,7 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optiona
         "party (sender/vendor/person or null), summary (one sentence), "
         "confidence (number from 0 to 1), suggested_filename (single safe .pdf filename using words from the document language). "
         "Do not translate the filename into English unless the document is in English.\n\n"
-        f"Original filename: {filename}\nDocument text:\n{text[:12000]}"
+        f"Original filename: {filename}\nTop-of-page layout clues:\n{layout or {}}\nDocument text:\n{text[:12000]}"
     )
     parts = [{"text": prompt}]
     if not text.strip() and pdf is not None:
@@ -376,6 +376,22 @@ def ensure_destinee_directories(destinees: List[str]) -> None:
     DESTINATION_PATH.mkdir(parents=True, exist_ok=True)
     for destinee in destinees:
         (DESTINATION_PATH / destinee).mkdir(exist_ok=True)
+
+
+def extract_layout_metadata(pdf: object) -> dict:
+    """Extract stable positional clues without exposing the original PDF layout."""
+    first_page = pdf[0] if len(pdf) else None
+    if first_page is None:
+        return {"first_page_title": None, "top_text": "", "page_text_lengths": []}
+    blocks = first_page.get_text("blocks")
+    blocks.sort(key=lambda block: (block[1], block[0]))
+    top_text = " ".join(block[4].strip() for block in blocks if block[1] < first_page.rect.height * 0.3)
+    first_page_title = top_text.splitlines()[0][:120] if top_text else None
+    return {
+        "first_page_title": first_page_title,
+        "top_text": top_text[:500],
+        "page_text_lengths": [len(page.get_text()) for page in pdf],
+    }
 
 
 @app.get("/api/ingestion/status")
@@ -755,7 +771,9 @@ def analyze_document(filename: str, processing_id: str) -> dict:
     try:
         with fitz.open(processing_path) as pdf:
             text = "\n".join(extract_page_text(page)[0] for page in pdf)
-            result = analyze_with_gemini(text, filename, pdf) or analyze_text(text, filename)
+            layout = extract_layout_metadata(pdf)
+            result = analyze_with_gemini(text, filename, pdf, layout) or analyze_text(text, filename)
+            result["layout"] = layout
     except (OSError, fitz.FileDataError) as exc:
         write_document_state(filename, "failed", error="Unable to analyze PDF")
         raise HTTPException(status_code=422, detail="Unable to analyze PDF") from exc
