@@ -11,6 +11,7 @@ const inboxList = document.querySelector("#inbox-list");
 const inboxStatus = document.querySelector("#inbox-status");
 const reviewPanel = document.querySelector("#review-panel");
 const reviewStatus = document.querySelector("#review-status");
+const analysisProvider = document.querySelector("#analysis-provider");
 const documentPreview = document.querySelector("#document-preview");
 const pageSummary = document.querySelector("#page-summary");
 const analysisSummary = document.querySelector("#analysis-summary");
@@ -96,6 +97,8 @@ async function inspectDocument(filename) {
     const analysis = await analysisResponse.json();
     const party = analysis.party ? ` · ${analysis.party}` : "";
     analysisSummary.textContent = `${analysis.category} · ${analysis.date}${party} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}`;
+    analysisProvider.textContent = analysis.analysis_source === "gemini" ? "Analysis provider: Gemini" : "Analysis provider: Local fallback";
+    analysisProvider.className = `analysis-provider ${analysis.analysis_source === "gemini" ? "provider-gemini" : "provider-local"}`;
     reviewFilename.value = analysis.suggested_filename;
     pageText.replaceChildren();
     preparedDocument.pages.forEach((page) => {
@@ -165,6 +168,19 @@ async function refreshInbox() {
   } catch {
     inboxList.replaceChildren();
     inboxStatus.textContent = "The n8n input directory is not reachable yet.";
+  }
+}
+
+async function loadAnalysisProvider() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/analysis/status`);
+    if (!response.ok) throw new Error("Provider status failed");
+    const status = await response.json();
+    analysisProvider.textContent = status.gemini_configured ? "Analysis provider: Gemini configured" : "Analysis provider: Local fallback";
+    analysisProvider.className = `analysis-provider ${status.gemini_configured ? "provider-gemini" : "provider-local"}`;
+  } catch {
+    analysisProvider.textContent = "Analysis provider status unavailable";
+    analysisProvider.className = "analysis-provider";
   }
 }
 
@@ -245,6 +261,7 @@ async function initialize() {
 initialize();
 refreshInbox();
 refreshHistory();
+loadAnalysisProvider();
 
 document.querySelector("[data-source-path]").textContent = SOURCE_PATH;
 document.querySelector("[data-destination-path]").textContent = `${DESTINATION_PATH}/`;

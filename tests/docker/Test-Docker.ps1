@@ -65,6 +65,10 @@ try {
     Assert-Equal $configResponse.output_root "/data/destination/" "Output path mismatch"
     Assert-Equal $configResponse.destinees.Count 3 "Default destinee count mismatch"
 
+    $analysisStatus = Invoke-RestMethod -Uri "$baseUrl/api/analysis/status" -Method Get
+    Assert-Equal $analysisStatus.gemini_configured $false "Unexpected Gemini configuration in isolated test"
+    Assert-Equal $analysisStatus.fallback "local" "Analysis fallback mismatch"
+
     docker exec $container python -c "import pymupdf; pdf=pymupdf.open(); page=pdf.new_page(); page.insert_text((72,72), 'Invoice Amount Due VAT'); pdf.save('/data/source/handoff.pdf')"
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create valid PDF fixture in the test container."

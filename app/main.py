@@ -233,6 +233,16 @@ def ingestion_status() -> dict:
     }
 
 
+@app.get("/api/analysis/status")
+def analysis_status() -> dict:
+    """Report the configured analysis provider without exposing credentials."""
+    return {
+        "gemini_configured": bool(GEMINI_API_KEY),
+        "endpoint": GEMINI_ENDPOINT,
+        "fallback": "local",
+    }
+
+
 @app.get("/api/classification/config", response_model=ClassificationResponse)
 def get_classification_config() -> ClassificationResponse:
     return response_for(read_config())

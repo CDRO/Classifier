@@ -245,6 +245,19 @@ Gemini is optional. Without `GEMINI_API_KEY`, the application uses the local cla
 8. Place a completed PDF in `/data/source`, select it in the web interface, and inspect the analysis result.
 9. Confirm the result contains `analysis_source: "gemini"` in the API response or that the review summary reflects the Gemini result.
 
+**Interface verification:** Open the application and select a PDF from the document inbox. The review panel displays an analysis-provider badge:
+- `Analysis provider: Gemini configured` means the running container received a Gemini key.
+- `Analysis provider: Gemini` means Gemini returned the analysis for the selected document.
+- `Analysis provider: Local fallback` means local analysis produced the result, usually because Gemini is not configured or the request failed.
+
+The server-only status endpoint can also be checked without revealing the key:
+
+```bash
+curl http://localhost:3000/api/analysis/status
+```
+
+The expected configured response includes `"gemini_configured": true`. This confirms configuration, while `analysis_source` in the document analysis response confirms actual use.
+
 **Endpoint override:** Keep the default endpoint unless using a compatible proxy or model deployment. `GEMINI_ENDPOINT` must be the complete `generateContent` URL. The API key is sent in the `x-goog-api-key` header and is never sent to the browser.
 
 **Failure behavior:** If Gemini times out, returns an error, or returns invalid JSON, the classifier records no secret data and falls back to local analysis. Check backend logs for the failure and confirm the local result has `analysis_source: "local"`.

@@ -203,6 +203,8 @@ Docker & Docker Compose
 - `GET /api/documents/history` - Return persisted document lifecycle history
 
 **Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration. Finalization writes the classified copy, optionally using a reviewed `.pdf` filename, moves the original with its source name out of `/data/source` into `/data/archive/` so it no longer appears in the n8n inbox, and removes the temporary processing workspace.
+
+**Analysis provider visibility:** The review UI displays whether Gemini is configured and which provider actually returned the current analysis. The API exposes only a boolean configuration flag and the provider name; credentials are never returned.
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails
 - `DELETE /api/document/{doc_id}` - Remove document from processing queue
 
@@ -218,6 +220,7 @@ Docker & Docker Compose
 
 **Ingestion and Classification Configuration:**
 - `GET /api/ingestion/status` - Report n8n handoff and input-directory status
+- `GET /api/analysis/status` - Report whether Gemini is configured, without exposing its key
 - `GET /api/classification/config` - Get configured destinees and fixed paths
 - `POST /api/classification/config` - Add, rename, remove, or reorder destinees
 - `POST /api/classification/scan` - Scan the n8n input directory for completed PDFs
