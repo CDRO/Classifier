@@ -38,9 +38,11 @@ const inboxSearch = document.querySelector("#inbox-search");
 const inboxFolderFilter = document.querySelector("#inbox-folder-filter");
 const inboxStatusFilter = document.querySelector("#inbox-status-filter");
 const inboxDuplicateFilter = document.querySelector("#inbox-duplicate-filter");
+const inboxSort = document.querySelector("#inbox-sort");
 const historySearch = document.querySelector("#history-search");
 const historyFolderFilter = document.querySelector("#history-folder-filter");
 const historyStatusFilter = document.querySelector("#history-status-filter");
+const historySort = document.querySelector("#history-sort");
 let selectedDocument = null;
 let configuredDestinees = [];
 let splitParts = [];
@@ -140,21 +142,67 @@ function getInboxFilterOptions() {
   populateSelect(inboxDuplicateFilter, duplicateOptions, inboxDuplicateFilter.value);
 }
 
+function getStatusPriority(status) {
+  const priority = {
+    duplicate: 0,
+    received: 1,
+    in_review: 2,
+    classified: 3,
+    dismissed: 4,
+    failed: 5
+  };
+  return priority[String(status || "received")] ?? 99;
+}
+
+function sortDocuments(files, mode = "path") {
+  const sortedFiles = [...files];
+  sortedFiles.sort((left, right) => {
+    const leftStatus = getStatusPriority(left.status || "received");
+    const rightStatus = getStatusPriority(right.status || "received");
+    const leftName = String(left.name || "").toLowerCase();
+    const rightName = String(right.name || "").toLowerCase();
+
+    if (mode === "duplicate") {
+      const duplicateDifference = Number(Boolean(right.duplicate_of)) - Number(Boolean(left.duplicate_of));
+      if (duplicateDifference !== 0) return duplicateDifference;
+    }
+
+    if (mode === "status") {
+      const statusDifference = leftStatus - rightStatus;
+      if (statusDifference !== 0) return statusDifference;
+    }
+
+    return leftName.localeCompare(rightName);
+  });
+  return sortedFiles;
+}
+
 function getVisibleInboxFiles() {
   const searchValue = inboxSearch?.value.trim().toLowerCase() || "";
   const folderValue = inboxFolderFilter?.value || "all";
   const statusValue = inboxStatusFilter?.value || "all";
   const duplicateValue = inboxDuplicateFilter?.value || "all";
 
-  return inboxFiles.filter((file) => {
+  const filtered = inboxFiles.filter((file) => {
     const source = formatSourcePath(file.name);
-    const matchesSearch = !searchValue || file.name.toLowerCase().includes(searchValue) || source.directory.toLowerCase().includes(searchValue) || source.basename.toLowerCase().includes(searchValue);
+    const statusText = (file.status || "received").toLowerCase();
+    const duplicateText = String(file.duplicate_of || "").toLowerCase();
+    const matchesSearch = !searchValue || [
+      file.name,
+      source.directory,
+      source.basename,
+      statusText,
+      duplicateText,
+      file.status || "received"
+    ].some((value) => String(value).toLowerCase().includes(searchValue));
     const matchesFolder = folderValue === "all" || source.directory === folderValue || (folderValue === "root" && source.directory === "root") || (folderValue === "/data/source" && source.directory === "root");
     const matchesStatus = statusValue === "all" || (file.status || "received") === statusValue;
     const isDuplicate = Boolean(file.duplicate_of);
     const matchesDuplicate = duplicateValue === "all" || (duplicateValue === "duplicate" && isDuplicate) || (duplicateValue === "unique" && !isDuplicate);
     return matchesSearch && matchesFolder && matchesStatus && matchesDuplicate;
   });
+
+  return sortDocuments(filtered, inboxSort?.value || "path");
 }
 
 function renderInbox(files) {
@@ -467,6 +515,18 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+async function goToNextVisibleDocument() {
+  if (!selectedDocument) return;
+  const nextFiles = getVisibleInboxFiles();
+  const nextDocument = getNextInboxFile(selectedDocument.filename, nextFiles);
+  if (!nextDocument) {
+    reviewPanel.hidden = true;
+    document.querySelector(".workflow-layout").classList.remove("review-active");
+    return;
+  }
+  await inspectDocument(nextDocument.name);
+}
+
 async function refreshInbox() {
   inboxStatus.textContent = "Checking for completed PDFs...";
   try {
@@ -536,13 +596,36 @@ function getHistoryVisibleEntries() {
   const folderValue = historyFolderFilter?.value || "all";
   const statusValue = historyStatusFilter?.value || "all";
 
-  return historyDocuments.filter((entry) => {
+  const filtered = historyDocuments.filter((entry) => {
     const source = formatSourcePath(entry.name);
-    const matchesSearch = !searchValue || entry.name.toLowerCase().includes(searchValue) || source.directory.toLowerCase().includes(searchValue) || (entry.destinee || "").toLowerCase().includes(searchValue) || (entry.status || "").toLowerCase().includes(searchValue);
+    const statusText = String(entry.status || "received").toLowerCase();
+    const duplicateText = String(entry.duplicate_of || "").toLowerCase();
+    const matchesSearch = !searchValue || [
+      entry.name,
+      source.directory,
+      entry.destinee || "",
+      statusText,
+      duplicateText
+    ].some((value) => String(value).toLowerCase().includes(searchValue));
     const folderMatch = folderValue === "all" || source.directory === folderValue || (folderValue === "root" && source.directory === "root");
     const statusMatch = statusValue === "all" || (entry.status || "received") === statusValue;
     return matchesSearch && folderMatch && statusMatch;
   });
+
+  if (!(historySort && historySort.value)) return filtered;
+
+  const sortedEntries = [...filtered];
+  sortedEntries.sort((left, right) => {
+    const leftName = String(left.name || "").toLowerCase();
+    const rightName = String(right.name || "").toLowerCase();
+    if (historySort.value === "status") {
+      const statusDifference = getStatusPriority(left.status || "received") - getStatusPriority(right.status || "received");
+      if (statusDifference !== 0) return statusDifference;
+    }
+    return leftName.localeCompare(rightName);
+  });
+
+  return sortedEntries;
 }
 
 function renderHistory(entries) {
@@ -610,12 +693,27 @@ document.querySelector("#add-destinee").addEventListener("click", () => {
 
 document.querySelector("#refresh-inbox").addEventListener("click", refreshInbox);
 document.querySelector("#refresh-history").addEventListener("click", refreshHistory);
-[inboxSearch, inboxFolderFilter, inboxStatusFilter, inboxDuplicateFilter].forEach((element) => {
+document.querySelector("#clear-inbox-filters").addEventListener("click", () => {
+  inboxSearch.value = "";
+  inboxFolderFilter.value = "all";
+  inboxStatusFilter.value = "all";
+  inboxDuplicateFilter.value = "all";
+  inboxSort.value = "path";
+  renderInbox(inboxFiles);
+});
+document.querySelector("#clear-history-filters").addEventListener("click", () => {
+  historySearch.value = "";
+  historyFolderFilter.value = "all";
+  historyStatusFilter.value = "all";
+  historySort.value = "path";
+  renderHistory(historyDocuments);
+});
+[inboxSearch, inboxFolderFilter, inboxStatusFilter, inboxDuplicateFilter, inboxSort].forEach((element) => {
   if (!element) return;
   element.addEventListener("input", () => renderInbox(inboxFiles));
   element.addEventListener("change", () => renderInbox(inboxFiles));
 });
-[historySearch, historyFolderFilter, historyStatusFilter].forEach((element) => {
+[historySearch, historyFolderFilter, historyStatusFilter, historySort].forEach((element) => {
   if (!element) return;
   element.addEventListener("input", () => renderHistory(historyDocuments));
   element.addEventListener("change", () => renderHistory(historyDocuments));
@@ -625,6 +723,31 @@ reviewDestinee.addEventListener("change", () => {
   if (reviewDestinee.value) {
     const existingConflict = getExistingOutputConflict(reviewDestinee.value, reviewFilename.value.trim());
     finalizeStatus.textContent = existingConflict ? `Warning: ${existingConflict.destination_path || reviewFilename.value.trim()} already exists for this destinee.` : "";
+  }
+});
+
+window.addEventListener("keydown", async (event) => {
+  const targetTag = event.target?.tagName;
+  const isTypingField = targetTag === "INPUT" || targetTag === "TEXTAREA" || targetTag === "SELECT";
+  if (isTypingField) return;
+
+  if (!selectedDocument) return;
+
+  if (event.key === "n" || event.key === "N") {
+    event.preventDefault();
+    await goToNextVisibleDocument();
+    return;
+  }
+
+  if (event.key === "d" || event.key === "D") {
+    event.preventDefault();
+    await dismissDocument(selectedDocument.filename);
+    return;
+  }
+
+  if ((event.key === "Enter" || event.key === " ") && reviewDestinee.value && !finalizeButton.disabled) {
+    event.preventDefault();
+    finalizeButton.click();
   }
 });
 

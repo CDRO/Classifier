@@ -67,8 +67,8 @@
         </div>
         <button type="button" id="refresh-inbox" class="button button-secondary">Refresh <span aria-hidden="true">&#8635;</span></button>
       </div>
-      <div class="filter-toolbar">
-        <input id="inbox-search" type="search" placeholder="Search filename or folder" aria-label="Search inbox">
+      <div class="filter-toolbar inbox-toolbar">
+        <input id="inbox-search" type="search" placeholder="Search filename, folder, or status" aria-label="Search inbox">
         <select id="inbox-folder-filter" aria-label="Filter inbox by source folder">
           <option value="all">All folders</option>
         </select>
@@ -80,6 +80,12 @@
           <option value="duplicate">Duplicate</option>
           <option value="unique">Unique</option>
         </select>
+        <select id="inbox-sort" aria-label="Sort inbox documents">
+          <option value="path">Sort: path</option>
+          <option value="duplicate">Sort: duplicate first</option>
+          <option value="status">Sort: status</option>
+        </select>
+        <button type="button" id="clear-inbox-filters" class="button button-secondary clear-filters">Clear filters</button>
       </div>
       <p id="inbox-status" class="inbox-status" aria-live="polite">Checking for completed PDFs...</p>
       <div id="inbox-list" class="inbox-list"></div>
@@ -151,6 +157,11 @@
         <select id="history-status-filter" aria-label="Filter history by status">
           <option value="all">All statuses</option>
         </select>
+        <select id="history-sort" aria-label="Sort history documents">
+          <option value="path">Sort: path</option>
+          <option value="status">Sort: status</option>
+        </select>
+        <button type="button" id="clear-history-filters" class="button button-secondary clear-filters">Clear filters</button>
       </div>
       <p id="history-status" class="inbox-status" aria-live="polite">Loading history...</p>
       <div id="history-list" class="history-list"></div>
