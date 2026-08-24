@@ -69,7 +69,7 @@ function renderInbox(files) {
   files.forEach((file) => {
     const item = document.createElement("div");
     item.className = "inbox-item";
-    item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(file.name)}</strong><small>${formatBytes(file.size)} · ready in n8n input</small></button><span class="file-state">READY</span>`;
+    item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(file.name)}</strong><small>${formatBytes(file.size)} · ready in n8n input</small></button><span class="file-state">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>`;
     item.querySelector(".inbox-document").addEventListener("click", () => inspectDocument(file.name));
     inboxList.append(item);
   });
@@ -83,7 +83,7 @@ async function inspectDocument(filename) {
     const preparedDocument = await response.json();
     selectedDocument = { filename, processingId: preparedDocument.processing_id };
     reviewPanel.hidden = false;
-    reviewStatus.textContent = preparedDocument.original_name;
+    reviewStatus.textContent = `${preparedDocument.original_name} · ${preparedDocument.status.replace("_", " ")}`;
     documentPreview.src = `${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/file`;
     pageSummary.textContent = `${preparedDocument.page_count} page${preparedDocument.page_count === 1 ? "" : "s"} prepared for review.`;
     pageText.replaceChildren();

@@ -76,6 +76,7 @@ try {
     $scan = Invoke-RestMethod -Uri "$baseUrl/api/classification/scan" -Method Post
     Assert-Equal $scan.count 1 "Completed PDF scan count mismatch"
     Assert-Equal $scan.files[0].name "handoff.pdf" "Scanned filename mismatch"
+    Assert-Equal $scan.files[0].status "received" "Initial document status mismatch"
 
     $document = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get
     Assert-Equal $document.name "handoff.pdf" "Document metadata name mismatch"
@@ -93,6 +94,7 @@ try {
     $prepared = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/prepare" -Method Post
     Assert-Equal $prepared.original_name "handoff.pdf" "Prepared filename mismatch"
     Assert-Equal $prepared.page_count 1 "Prepared page count mismatch"
+    Assert-Equal $prepared.status "in_review" "Prepared document status mismatch"
     if (-not (Test-Path (Join-Path $tempPath "processing\$($prepared.processing_id)\original.pdf"))) {
         throw "Prepared PDF was not written to processing storage."
     }
@@ -108,6 +110,8 @@ try {
     if (-not (Test-Path (Join-Path $destinationPath "Shared\handoff.pdf"))) {
         throw "Finalized PDF was not written to the destinee folder."
     }
+    $classifiedState = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get
+    Assert-Equal $classifiedState.status "classified" "Final document status mismatch"
 
     try {
         Invoke-RestMethod -Uri "$baseUrl/api/documents/..%2Fincomplete.pdf" -Method Get | Out-Null

@@ -20,6 +20,7 @@ DEFAULT_DESTINEES = ["Destinee A", "Destinee B", "Destinee C"]
 SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
 DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))
 CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json"))
+DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
 TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
 
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
@@ -78,6 +79,23 @@ def read_config() -> List[str]:
         return list(DEFAULT_DESTINEES)
 
 
+def read_document_states() -> dict:
+    if not DOCUMENTS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(DOCUMENTS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def write_document_state(filename: str, status: str, **details: object) -> None:
+    states = read_document_states()
+    states[filename] = {"status": status, **details}
+    DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
+
+
 def response_for(destinees: List[str]) -> ClassificationResponse:
     ensure_destinee_directories(destinees)
     return ClassificationResponse(
@@ -122,8 +140,14 @@ def update_classification_config(config: ClassificationConfig) -> Classification
 def scan_input_directory() -> dict:
     if not SOURCE_PATH.exists() or not SOURCE_PATH.is_dir():
         raise HTTPException(status_code=503, detail="n8n input directory is unavailable")
+    states = read_document_states()
     files = sorted(
-        {"name": path.name, "path": str(path), "size": path.stat().st_size}
+        {
+            "name": path.name,
+            "path": str(path),
+            "size": path.stat().st_size,
+            "status": states.get(path.name, {}).get("status", "received"),
+        }
         for path in SOURCE_PATH.iterdir()
         if path.is_file() and path.suffix.casefold() == ".pdf" and not path.name.startswith(".")
     )
@@ -148,6 +172,7 @@ def get_document(filename: str) -> dict:
         "path": str(document_path),
         "size": metadata.st_size,
         "modified": metadata.st_mtime,
+        "status": read_document_states().get(filename, {}).get("status", "received"),
     }
 
 
@@ -185,7 +210,16 @@ def prepare_document(filename: str) -> dict:
                 {"page": page_number + 1, "text": page.get_text()[:2000]}
                 for page_number, page in enumerate(pdf)
             ]
+        write_document_state(
+            document_path.name,
+            "in_review",
+            processing_id=processing_id,
+        )
     except (OSError, fitz.FileDataError) as exc:
+        try:
+            write_document_state(document_path.name, "failed", error="Unable to prepare PDF")
+        except OSError:
+            pass
         shutil.rmtree(processing_directory, ignore_errors=True)
         raise HTTPException(status_code=422, detail="Unable to prepare PDF for processing") from exc
 
@@ -195,6 +229,7 @@ def prepare_document(filename: str) -> dict:
         "processing_path": str(processing_path),
         "page_count": len(pages),
         "pages": pages,
+        "status": "in_review",
     }
 
 
@@ -225,6 +260,13 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         if destination_file.exists():
             raise HTTPException(status_code=409, detail="A document with this name already exists")
         shutil.copy2(processing_path, destination_file)
+        write_document_state(
+            document_path.name,
+            "classified",
+            processing_id=request.processing_id,
+            destinee=matching_destinee,
+            destination_path=str(destination_file),
+        )
     except HTTPException:
         raise
     except OSError as exc:
