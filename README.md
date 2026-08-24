@@ -65,6 +65,14 @@ Open `http://localhost:3000`. The image creates `/data/source` and `/data/destin
 
 ### 3. Run Tests
 
+Run the Docker-backed integration test from PowerShell:
+
+```powershell
+.\tests\docker\Test-Docker.ps1
+```
+
+The test builds the image, allocates an isolated temporary source and destination, starts a uniquely named container on a free port, exercises the API, and removes the container and temporary directories in a `finally` block. It does not stop or replace the normal development container.
+
 ```bash
 # Run all storage backend tests
 pytest tests/unit/test_storage_backends.py -v

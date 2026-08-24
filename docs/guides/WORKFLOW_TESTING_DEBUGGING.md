@@ -1087,6 +1087,25 @@ class TestPerformanceBenchmarks:
 # pytest tests/performance/test_benchmarks.py -v --benchmark-only
 ```
 
+## 10.2 Docker Integration Test Lifecycle
+
+The Docker integration test at `tests/docker/Test-Docker.ps1` validates the built application rather than importing the API directly. It must:
+
+1. Create isolated temporary source, destination, and configuration directories.
+2. Add a completed PDF and an incomplete temporary file to the source directory.
+3. Build the current `Dockerfile` image.
+4. Start one uniquely named container on a dynamically allocated free port.
+5. Verify the API, n8n scan behavior, configuration update, and mounted destinee-folder creation.
+6. Remove the test container and temporary directories in `finally`, whether assertions pass or fail.
+
+Run it from PowerShell:
+
+```powershell
+.\tests\docker\Test-Docker.ps1
+```
+
+The test must not use the development container name or port and must never leave a test container running after completion.
+
 ---
 
 ## 11. Rollback Procedures
