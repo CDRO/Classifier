@@ -232,7 +232,8 @@ function renderInbox(files) {
 
     groupedFiles.forEach((file) => {
       const item = document.createElement("div");
-      item.className = "inbox-item";
+      item.className = `inbox-item${selectedDocument && selectedDocument.filename === file.name ? " is-active" : ""}`;
+      item.setAttribute("aria-current", selectedDocument && selectedDocument.filename === file.name ? "true" : "false");
       const duplicateNote = file.duplicate_of ? ` · duplicate of ${escapeHtml(file.duplicate_of)}` : "";
       const statusClass = file.duplicate_of ? "warning" : "good";
       const source = formatSourcePath(file.name);
