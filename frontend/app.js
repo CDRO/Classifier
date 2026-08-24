@@ -287,7 +287,7 @@ async function inspectDocument(filename) {
       originalName: preparedDocument.original_name || preparedDocument.source_path?.split(/[\\/]/).pop() || filename
     };
     const source = formatSourcePath(selectedDocument.sourcePath || filename);
-    reviewStatus.textContent = `${source.basename} · source: ${source.fullPath}`;
+    reviewStatus.textContent = `${source.basename} · source: ${source.fullPath} · ${getQueueSummary(filename)}`;
     reviewFilename.value = preparedDocument.original_name;
     reviewSourcePath.textContent = selectedDocument.sourcePath.startsWith("/") ? `/data/source/${selectedDocument.sourcePath.replace(/^\//, "")}` : `/data/source/${selectedDocument.sourcePath}`;
     reviewOriginalFilename.textContent = preparedDocument.original_name;
@@ -436,6 +436,14 @@ async function rotatePage(page, rotation) {
   } catch {
     finalizeStatus.textContent = "The page could not be rotated.";
   }
+}
+
+function getQueueSummary(filename) {
+  const visibleFiles = getVisibleInboxFiles();
+  if (!visibleFiles.length) return "Queue: no documents";
+  const currentIndex = visibleFiles.findIndex((file) => file.name === filename);
+  if (currentIndex === -1) return `Queue: ${visibleFiles.length} documents`;
+  return `Queue: ${currentIndex + 1} / ${visibleFiles.length}`;
 }
 
 function getNextInboxFile(currentFilename, fileList = inboxFiles) {
