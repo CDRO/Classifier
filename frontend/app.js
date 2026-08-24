@@ -77,13 +77,13 @@ async function inspectDocument(filename) {
   try {
     const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/prepare`, { method: "POST" });
     if (!response.ok) throw new Error("Document lookup failed");
-    const document = await response.json();
+    const preparedDocument = await response.json();
     reviewPanel.hidden = false;
-    reviewStatus.textContent = document.original_name;
+    reviewStatus.textContent = preparedDocument.original_name;
     documentPreview.src = `${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/file`;
-    pageSummary.textContent = `${document.page_count} page${document.page_count === 1 ? "" : "s"} prepared for review.`;
+    pageSummary.textContent = `${preparedDocument.page_count} page${preparedDocument.page_count === 1 ? "" : "s"} prepared for review.`;
     pageText.replaceChildren();
-    document.pages.forEach((page) => {
+    preparedDocument.pages.forEach((page) => {
       const block = document.createElement("article");
       block.className = "page-text-block";
       block.innerHTML = `<strong>Page ${page.page}</strong><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
@@ -98,7 +98,7 @@ async function inspectDocument(filename) {
       option.textContent = destinee;
       reviewDestinee.append(option);
     });
-    inboxStatus.textContent = `${document.original_name} is ready for destinee review.`;
+    inboxStatus.textContent = `${preparedDocument.original_name} is ready for destinee review.`;
     reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch {
     inboxStatus.textContent = "The document could not be loaded from the n8n input directory.";
