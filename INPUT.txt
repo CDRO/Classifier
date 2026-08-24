@@ -92,7 +92,7 @@ To preserve original scans while exporting split documents:
 
 * **Originals Preservation:** When a scan arrives, write it immediately to the immutable container input directory **`/data/source/`** with a timestamp ID. Map the directory to NAS storage in `docker-compose.yml`.
 * **Destination Options:**
-1. **Local output (Recommended First Step):** Save split, rotated, and renamed PDFs directly into configurable destinee folders below **`/data/destination/`** (for example `/data/destination/Destinee A/`). Map this container path to NAS storage in `docker-compose.yml`.
+1. **Local output (Recommended First Step):** Save split, rotated, and renamed PDFs directly into configurable destinee folders below **`/data/destination/`** (for example `/data/destination/Destinee-A/`). Map this container path to NAS storage in `docker-compose.yml`.
 2. **SharePoint / Microsoft 365:** Use the official `@microsoft/microsoft-graph-client` SDK in your backend to auto-upload finalized files to SharePoint document libraries.
 3. **Google Drive:** Use `google-api-python-client` with a Service Account to write files to Google Drive folders.
 

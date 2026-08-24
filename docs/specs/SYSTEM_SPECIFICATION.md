@@ -411,7 +411,7 @@ NAS volumes (if using local NAS as archive backend):
 │   │   ├── {timestamp}_{uuid}_original.pdf (n8n handoff)
 │   │   └── metadata.json
 │   └── Classified/
-│       ├── Destinee A/
+│       ├── {configured_destinee}/
 │       └── {configured_destinee}/
 ├── Temp/
 │   ├── processing/

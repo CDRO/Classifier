@@ -433,7 +433,7 @@ class TestIngestionAndClassificationEndpoints:
     def test_update_classification_config_rejects_duplicates(self, client):
         """✓ Reject duplicate destinee names."""
         response = client.post("/api/classification/config", json={
-            "destinees": ["Destinee A", "me"]
+            "destinees": ["Destinee A", "destinee a"]
         })
         
         assert response.status_code == 400
