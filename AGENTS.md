@@ -4,6 +4,8 @@
 **Date:** 2026-08-17  
 **Purpose:** Define how AI agents and developers must operate on the Document Processing Pipeline project
 
+**Current integration boundary:** n8n writes completed PDFs to the container path `/data/source`. The classifier web interface owns configurable destinees, and classified files are written to `/data/destination/<destinee>/`. Host-specific NAS folders belong in `docker-compose.yml`.
+
 ---
 
 ## Preamble: The CAVEMAN Manifesto

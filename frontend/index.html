@@ -28,12 +28,12 @@
     <section class="path-grid" aria-label="Storage paths">
       <article class="path-card">
         <div class="card-label"><span class="icon">IN</span><span>n8n input</span></div>
-        <strong>/volume1/Archive/Originals_RAW</strong>
+        <strong data-source-path>/data/source</strong>
         <small>Completed PDFs arrive here</small>
       </article>
       <article class="path-card output-card">
         <div class="card-label"><span class="icon">OUT</span><span>classified output</span></div>
-        <strong>/volume1/Archive/Classified/</strong>
+        <strong data-destination-path>/data/destination/</strong>
         <small>One folder is created per destinee</small>
       </article>
     </section>
@@ -63,13 +63,14 @@
           <p class="eyebrow">OUTPUT PREVIEW</p>
           <h2 id="preview-title">Folder mapping</h2>
         </div>
-        <span class="preview-root">/volume1/Archive/Classified/</span>
+        <span class="preview-root" data-preview-root>/data/destination/</span>
       </div>
       <div id="folder-list" class="folder-list"></div>
     </section>
 
     <footer><span>Classifier v0.1</span><span>Local routing configuration</span></footer>
   </main>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

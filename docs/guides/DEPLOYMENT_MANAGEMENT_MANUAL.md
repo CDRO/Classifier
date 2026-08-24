@@ -193,10 +193,10 @@ LOG_LEVEL=INFO
 GEMINI_API_KEY=your-gemini-api-key-here
 CLAUDE_API_KEY=your-claude-api-key-here (optional)
 
-# Local paths (n8n handoff, processing cache, and classified output)
-TEMP_PATH=/volume1/Temp
-RAW_INPUT_PATH=/volume1/Archive/Originals_RAW
-CLASSIFIED_OUTPUT_PATH=/volume1/Archive/Classified
+# Local container paths (host mappings belong in docker-compose.yml)
+TEMP_PATH=/data/temp
+RAW_INPUT_PATH=/data/source
+CLASSIFIED_OUTPUT_PATH=/data/destination
 
 # FastAPI Configuration
 API_HOST=0.0.0.0
@@ -212,7 +212,7 @@ API_WORKERS=4
 # The classifier watches RAW_INPUT_PATH; source credentials are not stored here.
 ```
 
-**Important:** Storage source/destination is configured via the Web UI Settings panel, not via environment variables. See section 5.1 for initial setup.
+**Important:** The application uses `/data/source` and `/data/destination` by default. Host-specific folders are mapped later in `docker-compose.yml`; destinee names are configured in the web interface.
 
 **Save and exit:** Press `Ctrl+O`, `Enter`, `Ctrl+X`
 
@@ -363,7 +363,7 @@ sudo docker-compose restart classifier-backend
 
 ### 4.2 Configuring Ingestion and Destinees
 
-The external document source is configured in n8n. The classifier web interface configures the first-level destinees and writes classified files beneath `/volume1/Archive/Classified/`.
+The external document source is configured in n8n. The classifier web interface configures the first-level destinees and writes classified files beneath `/data/destination/`. Map this path to NAS storage in `docker-compose.yml`.
 
 **Access Classification Configuration:**
 1. Navigate to http://192.168.1.100:3000
@@ -376,7 +376,7 @@ The external document source is configured in n8n. The classifier web interface 
 Configure the n8n workflow to:
 
 1. Fetch PDFs from the desired external source.
-2. Write each PDF to `/volume1/Archive/Originals_RAW` through the shared Docker volume.
+2. Write each PDF to `/data/source` through the shared Docker volume.
 3. Preserve the original filename and avoid writing partial files. Use a temporary filename and rename after the write completes.
 4. Let the classifier detect completed PDFs in that directory.
 
@@ -388,7 +388,7 @@ The classifier does not fetch email or Google Drive files itself. n8n owns those
 2. Confirm the fixed paths shown for input and classified output.
 3. Add the initial destinees: `Destinee A`, `Destinee B`, and `Destinee C`.
 4. Save the configuration.
-5. The application creates or uses `/volume1/Archive/Classified/<destinee>/` for each configured value.
+5. The application creates or uses `/data/destination/<destinee>/` for each configured value.
 6. New destinees can be added in the UI without changing n8n or container configuration.
 
 #### 4.2.3 Google Drive Setup (n8n Responsibility)
@@ -429,7 +429,7 @@ sudo nano /volume1/docker/classifier/config/gd-service-account.json
 1. Select the Google Drive node and n8n credential.
 2. Select the source folder, for example `Document Inbox`.
 3. Configure the output node to write into the shared `Originals_RAW` mount.
-4. Test that a complete PDF appears in `/volume1/Archive/Originals_RAW`.
+4. Test that a complete PDF appears in `/data/source`.
 5. Configure destinees separately in the classifier web UI.
 
 #### 4.2.4 Local NAS Paths
@@ -437,13 +437,13 @@ sudo nano /volume1/docker/classifier/config/gd-service-account.json
 Local NAS storage is always available as a fallback:
 
 ```
-Archive: /volume1/Archive/Originals_RAW (immutable originals)
+Input: /data/source (immutable originals)
 Temp: /volume1/Temp (processing cache)
 ```
 
 To use the local classified output:
 1. Open Classification Configuration.
-2. Confirm output root: `/volume1/Archive/Classified/`
+2. Confirm output root: `/data/destination/`
 3. Save the configured destinees.
 4. The application creates one folder below the output root per destinee.
 
@@ -465,8 +465,8 @@ Future support for Microsoft SharePoint:
 1. Wait for backend to start (30-40 seconds)
 2. Navigate to http://192.168.1.100:3000
 3. Go to Settings → Classification Configuration
-4. Confirm input: `/volume1/Archive/Originals_RAW`
-5. Confirm output root: `/volume1/Archive/Classified/`
+4. Confirm input: `/data/source`
+5. Confirm output root: `/data/destination/`
 6. Configure the initial destinees: `Destinee A`, `Destinee B`, `Destinee C`
 7. Save configuration
 
@@ -478,8 +478,8 @@ sudo docker-compose logs classifier-backend | grep -Ei "n8n|Originals_RAW|Classi
 
 # Expected output:
 # [2026-08-24 14:30:00] n8n ingestion monitor initialized
-# [2026-08-24 14:30:01] Raw input ready: /volume1/Archive/Originals_RAW
-# [2026-08-24 14:30:02] Classified output ready: /volume1/Archive/Classified/
+# [2026-08-24 14:30:01] Raw input ready: /data/source
+# [2026-08-24 14:30:02] Classified output ready: /data/destination/
 ```
 
 ### 5.2 Health Check Dashboard
@@ -508,8 +508,8 @@ curl -X GET http://localhost:8000/health | jq .
 #     "pdf_engine": "ok",
 #     "ai_api": "ok",
 #     "ingestion": "ready",
-#     "raw_input": "/volume1/Archive/Originals_RAW",
-#     "classified_output": "/volume1/Archive/Classified/"
+#     "raw_input": "/data/source",
+#     "classified_output": "/data/destination/"
 #   }
 # }
 
@@ -599,14 +599,14 @@ curl -X POST http://localhost:8000/api/auth/register \
 
 ### 7.1 Process Documents (From n8n Handoff)
 
-Documents are ingested by n8n and handed off as completed PDFs in `/volume1/Archive/Originals_RAW`.
+Documents are ingested by n8n and handed off as completed PDFs in `/data/source`.
 
 **Via n8n:**
 1. Navigate to http://192.168.1.100:3000
 2. Confirm the n8n handoff status is healthy
 3. Wait for the PDF to appear in the raw input directory
 4. Review the analysis and detected destinee
-5. Finalize; output is written to `/volume1/Archive/Classified/<destinee>/`
+5. Finalize; output is written to `/data/destination/<destinee>/`
 
 **Via API (Upload to Configured Source Backend):**
 
@@ -806,7 +806,7 @@ echo "[$(date)] Starting backup..."
 tar -czf $BACKUP_FILE \
   /volume1/docker/classifier/config \
   /volume1/docker/classifier/logs \
-  /volume1/Archive/Originals_RAW \
+  /data/source \
   --exclude="*.tar.gz"
 
 # Keep only last 7 backups
@@ -895,10 +895,10 @@ df -h /volume1/
 sudo rm -rf /volume1/Temp/processing/*
 
 # 2. Review old classified output
-sudo find /volume1/Archive/Classified -maxdepth 2 -type f -mtime +365
+sudo find /data/destination -maxdepth 2 -type f -mtime +365
 
 # 3. Check file permissions
-sudo chmod 755 /volume1/Archive /volume1/Archive/Originals_RAW /volume1/Archive/Classified
+sudo chmod 755 /data /data/source /data/destination
 ```
 
 ### 10.4 n8n Handoff or Classified Output Issues
@@ -908,8 +908,8 @@ sudo chmod 755 /volume1/Archive /volume1/Archive/Originals_RAW /volume1/Archive/
 curl -X GET http://localhost:8000/api/ingestion/status | jq .
 
 # Check the classifier paths
-ls -la /volume1/Archive/Originals_RAW
-ls -la /volume1/Archive/Classified
+ls -la /data/source
+ls -la /data/destination
 
 # If no PDF arrives:
 # 1. Check the n8n workflow execution and source credentials.
@@ -1132,7 +1132,7 @@ sudo docker exec classifier-backend bash        # Shell access
 
 # Storage & Backups
 du -sh /volume1/Archive                         # Archive size
-du -sh /volume1/Archive/Classified             # Classified output size
+du -sh /data/destination                       # Classified output size
 tar -czf backup.tar.gz /volume1/Archive         # Manual backup
 
 # API Testing
@@ -1176,7 +1176,7 @@ Upgrade NAS RAM to 16GB.
 
 3. Configure the n8n workflow
   - Select the Google Drive source folder, for example "Document Inbox"
-  - Configure n8n to write completed PDFs to `/volume1/Archive/Originals_RAW`
+  - Configure n8n to write completed PDFs to `/data/source`
   - Keep Google credentials in n8n, not in the classifier
 
 4. Configure in classifier
@@ -1187,7 +1187,7 @@ Upgrade NAS RAM to 16GB.
 5. Verify (first boot)
    - Restart backend: `sudo docker-compose restart classifier-backend`
   - Check logs: `sudo docker-compose logs classifier-backend | grep "Raw input ready"`
-  - Should see: `Raw input ready: /volume1/Archive/Originals_RAW`
+  - Should see: `Raw input ready: /data/source`
 
 **Performance:** 
 - Recommended for < 100 docs/day
@@ -1206,9 +1206,9 @@ ALLOW_EXTERNAL_API_CALLS=false  # Local OCR only
 
 ```bash
 # Create local storage directories on NAS
-sudo mkdir -p /volume1/Archive/Originals_RAW
-sudo mkdir -p /volume1/Archive/Classified
-sudo chmod 755 /volume1/Archive/Originals_RAW /volume1/Archive/Classified
+sudo mkdir -p /data/source
+sudo mkdir -p /data/destination
+sudo chmod 755 /data/source /data/destination
 ```
 
 ### Scenario 3: Multi-User Collaborative Workflow

@@ -1,5 +1,7 @@
 const STORAGE_KEY = "classifier.destinees";
 const DEFAULT_DESTINEES = ["Destinee A", "Destinee B", "Destinee C"];
+const SOURCE_PATH = window.CLASSIFIER_CONFIG?.sourcePath || "/data/source";
+const DESTINATION_PATH = window.CLASSIFIER_CONFIG?.destinationPath || "/data/destination";
 const list = document.querySelector("#destinee-list");
 const folderList = document.querySelector("#folder-list");
 const count = document.querySelector("#count");
@@ -34,7 +36,7 @@ function render(destinees) {
 
     const folder = document.createElement("div");
     folder.className = "folder-item";
-    folder.innerHTML = `<strong>${escapeHtml(destinee)}</strong><small>/Classified/${escapeHtml(destinee)}/</small>`;
+    folder.innerHTML = `<strong>${escapeHtml(destinee)}</strong><small>${escapeHtml(DESTINATION_PATH)}/${escapeHtml(destinee)}/</small>`;
     folderList.append(folder);
   });
 }
@@ -72,3 +74,7 @@ document.querySelector("#destinee-form").addEventListener("submit", (event) => {
 });
 
 render(loadDestinees());
+
+document.querySelector("[data-source-path]").textContent = SOURCE_PATH;
+document.querySelector("[data-destination-path]").textContent = `${DESTINATION_PATH}/`;
+document.querySelector("[data-preview-root]").textContent = `${DESTINATION_PATH}/`;

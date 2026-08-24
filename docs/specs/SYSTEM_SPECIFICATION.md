@@ -73,8 +73,8 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
     │ • Local NAS Storage                                          │
     │ • SharePoint / Microsoft 365                                 │
     │ • Dropbox (future)                                           │
-    │ • Raw originals: /volume1/Archive/Originals_RAW              │
-    │ • Destinee output: /volume1/Archive/Classified/<destinee>/  │
+    │ • Raw originals: /data/source                                  │
+    │ • Destinee output: /data/destination/<destinee>/              │
     └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -157,11 +157,11 @@ Docker & Docker Compose
 ```
 [n8n Ingestion Workflow] (external source is configured in n8n)
   ↓
-[Handoff] → Write completed PDF to /volume1/Archive/Originals_RAW
+[Handoff] → Write completed PDF to /data/source
     ↓
 [Store Locally] → Cache to /volume1/Temp/processing/{doc_id}/
     ↓
-[Archive Original] → Original remains in /volume1/Archive/Originals_RAW
+[Archive Original] → Original remains in /data/source
     ↓
 [Extract Text] → PyMuPDF (vector PDF) or Tesseract (scanned)
     ↓
@@ -177,7 +177,7 @@ Docker & Docker Compose
     ↓
 [Classify Destinee] → Select one configured destinee (for example Destinee A, my girlfriend, her parents)
   ↓
-[Export] → Write to /volume1/Archive/Classified/{destinee}/
+[Export] → Write to /data/destination/{destinee}/
     ↓
 [Cleanup] → Remove temp files from /volume1/Temp/ after successful export
 ```
@@ -265,9 +265,9 @@ Request Body:
 External source integrations are deliberately outside the classifier. n8n fetches documents from email, Google Drive, or any other configured source and writes completed PDFs to the container's mounted input directory. The classifier uses local file I/O for the initial source and destination paths. This keeps source credentials and workflow orchestration in n8n while allowing the web UI to configure business-level destinees.
 
 **Runtime directories:**
-- Input: `/volume1/Archive/Originals_RAW`
-- Classified output root: `/volume1/Archive/Classified/`
-- Destinee output: `/volume1/Archive/Classified/{destinee}/`
+- Input: `/data/source`
+- Classified output root: `/data/destination/`
+- Destinee output: `/data/destination/{destinee}/`
 - Processing temporary files: `/volume1/Temp/processing/{doc_id}/`
 
 The existing `StorageBackend` abstraction remains available for a future external output provider, but it is not part of the initial n8n/local implementation path.
@@ -349,10 +349,10 @@ class StorageBackend(ABC):
   "storage_config": {
     "ingestion": {
       "provider": "n8n",
-      "input_path": "/volume1/Archive/Originals_RAW"
+      "input_path": "/data/source"
     },
     "classification": {
-      "output_root": "/volume1/Archive/Classified/",
+      "output_root": "/data/destination/",
       "destinees": ["Destinee A", "Destinee B", "Destinee C"]
     }
   }
@@ -367,10 +367,10 @@ Users configure first-level classification destinations via the web interface pa
 ┌─ Classification Configuration ─────────────────────────┐
 │                                                        │
 │ INGESTION: n8n                                          │
-│  ├─ Input: /volume1/Archive/Originals_RAW              │
+│  ├─ Input: /data/source                                │
 │  └─ Status: Waiting for n8n handoff                    │
 │                                                        │
-│ CLASSIFIED OUTPUT: /volume1/Archive/Classified/        │
+│ CLASSIFIED OUTPUT: /data/destination/                  │
 │  ├─ Destinees: Destinee A, Destinee B, Destinee C         │
 │  └─ [Add destinee] [Save configuration]                │
 │                                                        │
@@ -416,7 +416,7 @@ NAS volumes (if using local NAS as archive backend):
     └── (system backups, not user documents)
 ```
 
-**Note:** n8n is responsible for external source access. The initial classifier implementation reads from and writes to the mounted NAS paths; each configured destinee maps to a directory below `/volume1/Archive/Classified/`.
+**Note:** n8n is responsible for external source access. The initial classifier implementation reads from and writes to the mounted container paths; each configured destinee maps to a directory below `/data/destination/`. Host-specific NAS paths are supplied by `docker-compose.yml`.
 
 ### 4.2 Metadata Structure
 

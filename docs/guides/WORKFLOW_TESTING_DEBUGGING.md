@@ -280,7 +280,7 @@ class TestStorageBackendInterface:
         config = StorageConfig({
             "source": {"type": "google_drive", "folder_id": "123"},
             "classification": {
-                "output_root": "/volume1/Archive/Classified/",
+                "output_root": "/data/destination/",
                 "destinees": ["Destinee A", "Destinee B", "Destinee C"]
             }
         })
@@ -408,7 +408,7 @@ class TestIngestionAndClassificationEndpoints:
         assert response.status_code == 200
         status = response.json()
         assert status["provider"] == "n8n"
-        assert status["input_path"] == "/volume1/Archive/Originals_RAW"
+        assert status["input_path"] == "/data/source"
     
     def test_get_classification_config(self, client):
         """✓ Retrieve fixed paths and configured destinees."""
@@ -416,7 +416,7 @@ class TestIngestionAndClassificationEndpoints:
         
         assert response.status_code == 200
         config = response.json()
-        assert config["output_root"] == "/volume1/Archive/Classified/"
+        assert config["output_root"] == "/data/destination/"
         assert config["destinees"] == ["Destinee A", "Destinee B", "Destinee C"]
     
     def test_update_classification_config(self, client):
@@ -428,7 +428,7 @@ class TestIngestionAndClassificationEndpoints:
         assert response.status_code == 200
         config = response.json()
         assert config["destinees"][-1] == "Shared"
-        assert config["output_root"] == "/volume1/Archive/Classified/"
+        assert config["output_root"] == "/data/destination/"
     
     def test_update_classification_config_rejects_duplicates(self, client):
         """✓ Reject duplicate destinee names."""

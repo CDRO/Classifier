@@ -25,8 +25,10 @@ This is the initial implementation of the document processing pipeline: **n8n in
 │       └── test_storage_backends.py  # 18 unit tests
 ├── frontend/
 │   ├── index.html                    # Native browser interface
+│   ├── config.js                     # Container path defaults
 │   ├── app.js                        # Dependency-free UI behavior
 │   └── styles.css                    # Static styling
+├── Dockerfile                        # Static frontend image
 ├── docs/
 │   ├── specs/
 │   │   └── SYSTEM_SPECIFICATION.md
@@ -50,7 +52,18 @@ pip install -e ".[dev]"
 pip install -e .
 ```
 
-### 2. Run Tests
+### 2. Run the Native Frontend in Docker
+
+The current web interface is a static browser application. The Dockerfile uses Python's standard-library HTTP server, so the frontend image requires no Node.js, npm, or frontend package installation.
+
+```bash
+docker build -t classifier-web .
+docker run --rm -p 3000:3000 classifier-web
+```
+
+Open `http://localhost:3000`. The image creates `/data/source` and `/data/destination`; host-specific mounts will be added in `docker-compose.yml`.
+
+### 3. Run Tests
 
 ```bash
 # Run all storage backend tests
@@ -64,7 +77,7 @@ pytest tests/unit/test_storage_backends.py --cov=src/storage --cov-report=html
 # Open htmlcov/index.html in browser
 ```
 
-### 3. Code Quality Checks
+### 4. Code Quality Checks
 
 ```bash
 # Type checking
@@ -100,13 +113,13 @@ class StorageBackend(ABC):
 
 ### n8n Ingestion
 
-External source access, including Google Drive or email, is configured in n8n. The classifier receives completed PDFs in `/volume1/Archive/Originals_RAW` and does not store source credentials.
+External source access, including Google Drive or email, is configured in n8n. The classifier receives completed PDFs in `/data/source` and does not store source credentials. Host-specific NAS folders will be mapped to this path by `docker-compose.yml`.
 
 **Setup:** See [DEPLOYMENT_MANAGEMENT_MANUAL.md Section 4.2.1](docs/guides/DEPLOYMENT_MANAGEMENT_MANUAL.md#421-n8n-ingestion-handoff)
 
 ### Local Classification Output
 
-**Output root:** `/volume1/Archive/Classified/`
+**Output root:** `/data/destination/`
 
 **Features:**
 - One output folder per configured destinee

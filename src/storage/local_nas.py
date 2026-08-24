@@ -78,7 +78,7 @@ class LocalNASBackend(StorageBackend):
             PermissionError: If user lacks permissions
         """
         try:
-            path_str = credentials.get("path", "/volume1/")
+            path_str = credentials.get("path", "/data")
             
             if not path_str:
                 raise ValueError("credentials['path'] cannot be empty")
