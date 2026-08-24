@@ -123,6 +123,11 @@ try {
     Assert-Equal $prepared.page_count 1 "Prepared page count mismatch"
     Assert-Equal $prepared.status "in_review" "Prepared document status mismatch"
     Assert-Equal $prepared.ocr_used $false "Unexpected OCR usage for text PDF"
+    $rotated = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/rotate" -Method Post `
+        -ContentType "application/json" -Body (@{ processing_id = $prepared.processing_id; page = 1; rotation = 90 } | ConvertTo-Json)
+    Assert-Equal $rotated.rotation 90 "Page rotation mismatch"
+    $preparedFile = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/processing/$($prepared.processing_id)/file"
+    Assert-Equal $preparedFile.StatusCode 200 "Prepared file response status mismatch"
     $analysis = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/analyze?processing_id=$($prepared.processing_id)" -Method Post
     Assert-Equal $analysis.topic "Invoice" "Content topic mismatch"
     Assert-Equal $analysis.category "Invoice" "Content category mismatch"

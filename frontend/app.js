@@ -117,7 +117,7 @@ async function inspectDocument(filename) {
     reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
     reviewStatus.textContent = `${preparedDocument.original_name} · ${preparedDocument.status.replace("_", " ")}`;
     reviewFilename.value = preparedDocument.original_name;
-    documentPreview.src = `${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/file`;
+    documentPreview.src = `${API_BASE_URL}/api/processing/${encodeURIComponent(preparedDocument.processing_id)}/file`;
     pageSummary.textContent = `${preparedDocument.page_count} page${preparedDocument.page_count === 1 ? "" : "s"} prepared for review.`;
     const configResponse = await fetch(`${API_BASE_URL}/api/classification/config`);
     if (!configResponse.ok) throw new Error("Configuration lookup failed");
@@ -155,7 +155,10 @@ async function inspectDocument(filename) {
       const block = document.createElement("article");
       block.className = "page-text-block";
       const ocrLabel = page.ocr_used ? " · OCR" : "";
-      block.innerHTML = `<strong>Page ${page.page}${ocrLabel}</strong><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
+      block.innerHTML = `<div class="page-text-heading"><strong>Page ${page.page}${ocrLabel}</strong><div class="rotation-controls"><button type="button" data-rotation="270" aria-label="Rotate page ${page.page} left">&#8634;</button><button type="button" data-rotation="90" aria-label="Rotate page ${page.page} right">&#8635;</button></div></div><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
+      block.querySelectorAll("[data-rotation]").forEach((button) => {
+        button.addEventListener("click", () => rotatePage(page.page, Number(button.dataset.rotation)));
+      });
       pageText.append(block);
     });
     finalizeButton.disabled = true;
@@ -164,6 +167,22 @@ async function inspectDocument(filename) {
   } catch {
     await loadAnalysisProvider();
     inboxStatus.textContent = "The document could not be loaded from the n8n input directory.";
+  }
+}
+
+async function rotatePage(page, rotation) {
+  if (!selectedDocument) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(selectedDocument.filename)}/rotate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ processing_id: selectedDocument.processingId, page, rotation })
+    });
+    if (!response.ok) throw new Error("Rotation failed");
+    documentPreview.src = `${API_BASE_URL}/api/processing/${encodeURIComponent(selectedDocument.processingId)}/file?refresh=${Date.now()}`;
+    finalizeStatus.textContent = `Page ${page} rotated ${rotation} degrees.`;
+  } catch {
+    finalizeStatus.textContent = "The page could not be rotated.";
   }
 }
 

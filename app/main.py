@@ -100,6 +100,21 @@ class FinalizeRequest(BaseModel):
         return cleaned
 
 
+class RotateRequest(BaseModel):
+    """Requested clockwise rotation for one prepared page."""
+
+    processing_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-f0-9]+$")
+    page: int = Field(ge=1)
+    rotation: int
+
+    @field_validator("rotation")
+    @classmethod
+    def validate_rotation(cls, value: int) -> int:
+        if value not in {0, 90, 180, 270}:
+            raise ValueError("Rotation must be 0, 90, 180, or 270 degrees")
+        return value
+
+
 app = FastAPI(title="Document Classifier API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -455,6 +470,39 @@ def serve_document(filename: str):
             "Content-Disposition": f"inline; filename*=UTF-8''{quote(document_path.name)}"
         },
     )
+
+
+def prepared_file(processing_id: str) -> Path:
+    processing_path = (TEMP_PATH / "processing" / processing_id / "original.pdf").resolve()
+    processing_root = (TEMP_PATH / "processing").resolve()
+    if processing_path.parent.parent != processing_root or not processing_path.is_file():
+        raise HTTPException(status_code=404, detail="Prepared document not found")
+    return processing_path
+
+
+@app.get("/api/processing/{processing_id}/file")
+def serve_prepared_document(processing_id: str):
+    """Serve the current prepared PDF, including review rotations."""
+    processing_path = prepared_file(processing_id)
+    return FileResponse(processing_path, media_type="application/pdf")
+
+
+@app.post("/api/documents/{filename}/rotate")
+def rotate_document_page(filename: str, request: RotateRequest) -> dict:
+    """Rotate one page in the prepared PDF without changing the source PDF."""
+    processing_path = prepared_file(request.processing_id)
+    try:
+        with fitz.open(processing_path) as pdf:
+            if request.page > pdf.page_count:
+                raise HTTPException(status_code=422, detail="Page is outside the document")
+            pdf[request.page - 1].set_rotation(request.rotation)
+            pdf.save(processing_path.with_suffix(".rotated.pdf"))
+        processing_path.with_suffix(".rotated.pdf").replace(processing_path)
+    except HTTPException:
+        raise
+    except (OSError, fitz.FileDataError) as exc:
+        raise HTTPException(status_code=422, detail="Unable to rotate PDF page") from exc
+    return {"processing_id": request.processing_id, "page": request.page, "rotation": request.rotation}
 
 
 class DismissRequest(BaseModel):

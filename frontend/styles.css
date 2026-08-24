@@ -91,6 +91,10 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .page-text { max-height: 380px; margin-top: 22px; overflow: auto; }
 .page-text-block { padding: 12px 0; border-top: 1px solid var(--line); }
 .page-text-block strong { font: 700 11px Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; }
+.page-text-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rotation-controls { display: flex; gap: 5px; }
+.rotation-controls button { width: 28px; height: 28px; border: 1px solid var(--line); background: white; color: var(--green); font-family: Arial, sans-serif; }
+.rotation-controls button:hover { border-color: var(--green); background: var(--mint); }
 .page-text-block p { margin: 7px 0 0; white-space: pre-wrap; color: var(--muted); font: 13px/1.5 Arial, sans-serif; }
 .history-list { display: grid; gap: 8px; }
 .history-item { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 16px; border-bottom: 1px solid var(--line); }
