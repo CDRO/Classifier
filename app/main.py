@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 DEFAULT_DESTINEES: List[str] = []
 APP_VERSION = os.getenv("APP_VERSION", "dev")
+APP_REVISION = os.getenv("APP_REVISION", "unknown")
 SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
 DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))
 ARCHIVE_PATH = Path(os.getenv("PROCESSED_ARCHIVE_PATH", "/data/archive"))
@@ -343,7 +344,7 @@ def analysis_status() -> dict:
 @app.get("/api/version")
 def version_status() -> dict:
     """Return the non-secret version embedded in the running container."""
-    return {"version": APP_VERSION}
+    return {"version": APP_VERSION, "revision": APP_REVISION}
 
 
 @app.get("/api/classification/config", response_model=ClassificationResponse)

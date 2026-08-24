@@ -23,6 +23,7 @@ const historyStatus = document.querySelector("#history-status");
 const finalizeButton = document.querySelector("#finalize-document");
 const finalizeStatus = document.querySelector("#finalize-status");
 const appVersion = document.querySelector("#app-version");
+const appRevision = document.querySelector("#app-revision");
 const globalAnalysisStatus = document.querySelector("#global-analysis-status");
 let selectedDocument = null;
 
@@ -253,8 +254,10 @@ async function loadVersion() {
     if (!response.ok) throw new Error("Version request failed");
     const result = await response.json();
     appVersion.textContent = `v${result.version}`;
+    appRevision.textContent = `revision ${result.revision}`;
   } catch {
     appVersion.textContent = "version unavailable";
+    appRevision.textContent = "revision unavailable";
   }
 }
 
