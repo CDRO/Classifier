@@ -61,6 +61,15 @@ try {
         }
     }
 
+    $homepage = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/"
+    Assert-Equal $homepage.StatusCode 200 "Homepage response status mismatch"
+    if ($homepage.Content -notmatch 'styles\.css\?v=0\.0\.0-test') {
+        throw "Homepage stylesheet cache-busting version is stale or missing."
+    }
+    if ($homepage.Content -notmatch 'app\.js\?v=0\.0\.0-test') {
+        throw "Homepage script cache-busting version is stale or missing."
+    }
+
     Assert-Equal $configResponse.input_path "/data/source" "Input path mismatch"
     Assert-Equal $configResponse.output_root "/data/destination/" "Output path mismatch"
     Assert-Equal $configResponse.destinees.Count 0 "Default destinee count mismatch"

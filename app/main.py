@@ -148,7 +148,7 @@ class SplitFinalizeRequest(BaseModel):
     outputs: List[SplitOutput] = Field(min_length=1, max_length=100)
 
 
-app = FastAPI(title="Document Classifier API", version="0.1.0")
+app = FastAPI(title="Document Classifier API", version=os.getenv("APP_VERSION", "0.10.0"))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
