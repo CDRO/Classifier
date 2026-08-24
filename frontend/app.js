@@ -96,6 +96,12 @@ async function inspectDocument(filename) {
     if (!configResponse.ok) throw new Error("Configuration lookup failed");
     const config = await configResponse.json();
     reviewDestinee.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose a destinee";
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    reviewDestinee.append(placeholder);
     config.destinees.forEach((destinee) => {
       const option = document.createElement("option");
       option.value = destinee;
@@ -121,7 +127,7 @@ async function inspectDocument(filename) {
       block.innerHTML = `<strong>Page ${page.page}</strong><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
       pageText.append(block);
     });
-    finalizeButton.disabled = false;
+    finalizeButton.disabled = true;
     finalizeStatus.textContent = "";
     inboxStatus.textContent = `${preparedDocument.original_name} is ready for destinee review.`;
     reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -131,7 +137,10 @@ async function inspectDocument(filename) {
 }
 
 finalizeButton.addEventListener("click", async () => {
-  if (!selectedDocument || !reviewDestinee.value) return;
+  if (!selectedDocument || !reviewDestinee.value) {
+    finalizeStatus.textContent = "Choose a destinee before finalizing.";
+    return;
+  }
   finalizeButton.disabled = true;
   finalizeStatus.textContent = "Finalizing...";
   try {
@@ -219,6 +228,9 @@ document.querySelector("#add-destinee").addEventListener("click", () => {
 
 document.querySelector("#refresh-inbox").addEventListener("click", refreshInbox);
 document.querySelector("#refresh-history").addEventListener("click", refreshHistory);
+reviewDestinee.addEventListener("change", () => {
+  finalizeButton.disabled = !reviewDestinee.value;
+});
 
 document.querySelector("#destinee-form").addEventListener("submit", async (event) => {
   event.preventDefault();

@@ -258,6 +258,8 @@ curl http://localhost:3000/api/analysis/status
 
 The expected configured response includes `"gemini_configured": true`. This confirms configuration, while `analysis_source` in the document analysis response confirms actual use.
 
+Destinee routing is a separate manual decision. The interface lists every configured destinee, starts with no selection, and keeps finalization disabled until the user chooses one. This allows a document to be rerouted manually when an analysis result is incorrect.
+
 If configuration reports `true` but analysis falls back to local, check the model endpoint first. A model can appear in the model list but still be unavailable to a new API key. The endpoint must refer to a model that both exists and supports `generateContent`; for the current configured key, `gemini-3.6-flash:generateContent` returned `200 OK` and produced `analysis_source: "gemini"`.
 
 **Endpoint override:** Keep the default endpoint unless using a compatible proxy or model deployment. `GEMINI_ENDPOINT` must be the complete `generateContent` URL. The API key is sent in the `x-goog-api-key` header and is never sent to the browser.

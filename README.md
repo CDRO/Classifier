@@ -205,6 +205,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Analyze PDF text locally and suggest a descriptive output filename
 - [x] Add optional Gemini enrichment with local fallback
 - [x] Show Gemini configuration and actual analysis provider in the review UI
+- [x] Require explicit user-selected destinee routing without AI proposals
 - [x] Verify Gemini 3.6 Flash analysis with the configured server key
 - [x] Finalize a reviewed PDF into its configured destinee folder
 - [x] Rename the classified output while preserving the original archive filename
