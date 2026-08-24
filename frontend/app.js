@@ -170,7 +170,7 @@ async function inspectDocument(filename) {
       const block = document.createElement("article");
       block.className = "page-text-block";
       const ocrLabel = page.ocr_used ? " · OCR" : "";
-      block.innerHTML = `<div class="page-text-heading"><strong>Page ${page.page}${ocrLabel}</strong><div class="rotation-controls"><button type="button" data-rotation="270" aria-label="Rotate page ${page.page} left">&#8634;</button><button type="button" data-rotation="90" aria-label="Rotate page ${page.page} right">&#8635;</button></div></div><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
+      block.innerHTML = `<img class="page-thumbnail" src="${API_BASE_URL}/api/processing/${encodeURIComponent(preparedDocument.processing_id)}/pages/${page.page}/thumbnail" alt="Page ${page.page} preview"><div class="page-text-heading"><strong>Page ${page.page}${ocrLabel}</strong><div class="rotation-controls"><button type="button" data-rotation="270" aria-label="Rotate page ${page.page} left">&#8634;</button><button type="button" data-rotation="90" aria-label="Rotate page ${page.page} right">&#8635;</button></div></div><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
       block.querySelectorAll("[data-rotation]").forEach((button) => {
         button.addEventListener("click", () => rotatePage(page.page, Number(button.dataset.rotation)));
       });
@@ -253,6 +253,9 @@ async function rotatePage(page, rotation) {
     });
     if (!response.ok) throw new Error("Rotation failed");
     documentPreview.src = `${API_BASE_URL}/api/processing/${encodeURIComponent(selectedDocument.processingId)}/file?refresh=${Date.now()}`;
+    pageText.querySelectorAll(".page-thumbnail").forEach((thumbnail) => {
+      thumbnail.src = `${thumbnail.src.split("?")[0]}?refresh=${Date.now()}`;
+    });
     finalizeStatus.textContent = `Page ${page} rotated ${rotation} degrees.`;
   } catch {
     finalizeStatus.textContent = "The page could not be rotated.";

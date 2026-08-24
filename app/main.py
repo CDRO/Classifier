@@ -517,6 +517,25 @@ def serve_prepared_document(processing_id: str):
     return FileResponse(processing_path, media_type="application/pdf")
 
 
+@app.get("/api/processing/{processing_id}/pages/{page}/thumbnail")
+def serve_page_thumbnail(processing_id: str, page: int):
+    """Render one prepared page as a JPEG thumbnail for review."""
+    processing_path = prepared_file(processing_id)
+    thumbnail_path = processing_path.parent / f"page_{page:04d}.jpg"
+    try:
+        with fitz.open(processing_path) as pdf:
+            if page < 1 or page > pdf.page_count:
+                raise HTTPException(status_code=404, detail="Page not found")
+            if not thumbnail_path.exists():
+                pixmap = pdf[page - 1].get_pixmap(matrix=fitz.Matrix(1, 1), alpha=False)
+                pixmap.save(thumbnail_path)
+    except HTTPException:
+        raise
+    except (OSError, fitz.FileDataError) as exc:
+        raise HTTPException(status_code=422, detail="Unable to render page thumbnail") from exc
+    return FileResponse(thumbnail_path, media_type="image/jpeg")
+
+
 @app.post("/api/documents/{filename}/rotate")
 def rotate_document_page(filename: str, request: RotateRequest) -> dict:
     """Rotate one page in the prepared PDF without changing the source PDF."""
@@ -528,6 +547,7 @@ def rotate_document_page(filename: str, request: RotateRequest) -> dict:
             pdf[request.page - 1].set_rotation(request.rotation)
             pdf.save(processing_path.with_suffix(".rotated.pdf"))
         processing_path.with_suffix(".rotated.pdf").replace(processing_path)
+        (processing_path.parent / f"page_{request.page:04d}.jpg").unlink(missing_ok=True)
     except HTTPException:
         raise
     except (OSError, fitz.FileDataError) as exc:

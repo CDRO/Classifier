@@ -204,6 +204,7 @@ Docker & Docker Compose
 - `POST /api/documents/{filename}/split` - Create numbered PDF parts from selected page boundaries
 - `POST /api/documents/{filename}/finalize-split` - Finalize all split parts with independent filenames and destinees
 - `GET /api/processing/{processing_id}/file` - Serve the current prepared PDF for review
+- `GET /api/processing/{processing_id}/pages/{page}/thumbnail` - Render a prepared page thumbnail
 - Analysis results include `language` and explainable `signals` for local fallback decisions.
 - `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee with an optional output filename
 - `POST /api/documents/{filename}/dismiss` - Move an inbox PDF to the dismissed archive without processing it

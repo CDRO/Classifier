@@ -90,6 +90,7 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .provider-warning { border-color: #e6b08a; background: #fff0e6; color: #9b4d20; }
 .page-text { max-height: 380px; margin-top: 22px; overflow: auto; }
 .page-text-block { padding: 12px 0; border-top: 1px solid var(--line); }
+.page-thumbnail { display: block; width: min(100%, 360px); max-height: 220px; margin: 0 0 12px; object-fit: contain; object-position: left top; border: 1px solid var(--line); background: #eef1ed; }
 .page-text-block strong { font: 700 11px Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; }
 .page-text-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .rotation-controls { display: flex; gap: 5px; }

@@ -210,6 +210,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Rotate prepared PDF pages from the review interface
 - [x] Create split PDF parts from user-selected page boundaries
 - [x] Finalize split parts with independent filenames and destinees
+- [x] Display prepared-page thumbnails in the review interface
 - [x] Ask Gemini to suggest filenames using the document's language
 - [x] Add optional Gemini enrichment with local fallback
 - [x] Show Gemini configuration and actual analysis provider in the review UI

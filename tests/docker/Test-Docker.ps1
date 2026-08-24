@@ -134,6 +134,9 @@ try {
     Assert-Equal $rotated.rotation 90 "Page rotation mismatch"
     $preparedFile = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/processing/$($prepared.processing_id)/file"
     Assert-Equal $preparedFile.StatusCode 200 "Prepared file response status mismatch"
+    $thumbnail = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/processing/$($prepared.processing_id)/pages/1/thumbnail"
+    Assert-Equal $thumbnail.StatusCode 200 "Page thumbnail response status mismatch"
+    Assert-Equal $thumbnail.Headers["Content-Type"] "image/jpeg" "Page thumbnail content type mismatch"
     $analysis = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/analyze?processing_id=$($prepared.processing_id)" -Method Post
     Assert-Equal $analysis.topic "Invoice" "Content topic mismatch"
     Assert-Equal $analysis.category "Invoice" "Content category mismatch"
