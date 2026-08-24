@@ -2,3 +2,4 @@
 /app/data/
 /data
 docker.env
+/app/__pycache__/

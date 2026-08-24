@@ -31,9 +31,21 @@ const finalizeSplitButton = document.querySelector("#finalize-split");
 const appVersion = document.querySelector("#app-version");
 const appRevision = document.querySelector("#app-revision");
 const globalAnalysisStatus = document.querySelector("#global-analysis-status");
+const reviewSourcePath = document.querySelector("#review-source-path");
+const reviewOriginalFilename = document.querySelector("#review-original-filename");
+const reviewDuplicateWarning = document.querySelector("#review-duplicate-warning");
+const inboxSearch = document.querySelector("#inbox-search");
+const inboxFolderFilter = document.querySelector("#inbox-folder-filter");
+const inboxStatusFilter = document.querySelector("#inbox-status-filter");
+const inboxDuplicateFilter = document.querySelector("#inbox-duplicate-filter");
+const historySearch = document.querySelector("#history-search");
+const historyFolderFilter = document.querySelector("#history-folder-filter");
+const historyStatusFilter = document.querySelector("#history-status-filter");
 let selectedDocument = null;
 let configuredDestinees = [];
 let splitParts = [];
+let inboxFiles = [];
+let historyDocuments = [];
 
 function loadDestinees() {
   try {
@@ -86,6 +98,10 @@ function resetReviewPanelState() {
   reviewDestinee.disabled = true;
   finalizeButton.disabled = true;
   finalizeStatus.textContent = "";
+  reviewSourcePath.textContent = "—";
+  reviewOriginalFilename.textContent = "—";
+  reviewDuplicateWarning.textContent = "";
+  reviewDuplicateWarning.hidden = true;
   splitBoundaries.replaceChildren();
   splitOutputs.replaceChildren();
   splitOutputs.hidden = true;
@@ -96,14 +112,60 @@ function resetReviewPanelState() {
   previewLoader.classList.add("visible");
 }
 
+function getStatusLabel(status) {
+  return String(status || "received").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getInboxFilterOptions() {
+  const statusOptions = ["all", "received", "duplicate", "in_review", "classified", "dismissed"];
+  const sourceFolders = ["all", ...new Set(inboxFiles.map((file) => formatSourcePath(file.name).directory).filter(Boolean))];
+  const duplicateOptions = ["all", "duplicate", "unique"];
+
+  const populateSelect = (select, values, selectedValue) => {
+    const current = selectedValue || select.value;
+    select.replaceChildren();
+    values.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value === "all" ? "All" : value === "unique" ? "Unique" : value === "duplicate" ? "Duplicate" : value === "received" ? "Received" : value === "in_review" ? "In review" : value === "classified" ? "Classified" : value === "dismissed" ? "Dismissed" : value;
+      if (value === current || (current === "" && value === "all")) {
+        option.selected = true;
+      }
+      select.append(option);
+    });
+  };
+
+  populateSelect(inboxFolderFilter, sourceFolders, inboxFolderFilter.value);
+  populateSelect(inboxStatusFilter, statusOptions, inboxStatusFilter.value);
+  populateSelect(inboxDuplicateFilter, duplicateOptions, inboxDuplicateFilter.value);
+}
+
+function getVisibleInboxFiles() {
+  const searchValue = inboxSearch?.value.trim().toLowerCase() || "";
+  const folderValue = inboxFolderFilter?.value || "all";
+  const statusValue = inboxStatusFilter?.value || "all";
+  const duplicateValue = inboxDuplicateFilter?.value || "all";
+
+  return inboxFiles.filter((file) => {
+    const source = formatSourcePath(file.name);
+    const matchesSearch = !searchValue || file.name.toLowerCase().includes(searchValue) || source.directory.toLowerCase().includes(searchValue) || source.basename.toLowerCase().includes(searchValue);
+    const matchesFolder = folderValue === "all" || source.directory === folderValue || (folderValue === "root" && source.directory === "root") || (folderValue === "/data/source" && source.directory === "root");
+    const matchesStatus = statusValue === "all" || (file.status || "received") === statusValue;
+    const isDuplicate = Boolean(file.duplicate_of);
+    const matchesDuplicate = duplicateValue === "all" || (duplicateValue === "duplicate" && isDuplicate) || (duplicateValue === "unique" && !isDuplicate);
+    return matchesSearch && matchesFolder && matchesStatus && matchesDuplicate;
+  });
+}
+
 function renderInbox(files) {
+  const visibleFiles = getVisibleInboxFiles();
   inboxList.replaceChildren();
-  inboxStatus.textContent = files.length
-    ? `${files.length} completed PDF${files.length === 1 ? "" : "s"} waiting for classification.`
-    : "No completed PDFs are waiting for classification.";
+  inboxStatus.textContent = visibleFiles.length
+    ? `${visibleFiles.length} completed PDF${visibleFiles.length === 1 ? "" : "s"} matching the current filter.`
+    : "No completed PDFs match the current filter.";
 
   const sourceGroups = new Map();
-  files.forEach((file) => {
+  visibleFiles.forEach((file) => {
     const source = formatSourcePath(file.name);
     const directory = source.directory === "root" ? "/data/source" : `/data/source/${source.directory}`;
     if (!sourceGroups.has(directory)) {
@@ -124,8 +186,9 @@ function renderInbox(files) {
       const item = document.createElement("div");
       item.className = "inbox-item";
       const duplicateNote = file.duplicate_of ? ` · duplicate of ${escapeHtml(file.duplicate_of)}` : "";
+      const statusClass = file.duplicate_of ? "warning" : "good";
       const source = formatSourcePath(file.name);
-      item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(source.basename)}</strong><small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · ready in n8n input${duplicateNote}</small></button><button class="dismiss-button" type="button" aria-label="Dismiss ${escapeHtml(file.name)}">Dismiss</button><span class="file-state">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>`;
+      item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(source.basename)}</strong><small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · ready in n8n input${duplicateNote}</small></button><button class="dismiss-button" type="button" aria-label="Dismiss ${escapeHtml(file.name)}">Dismiss</button><span class="file-state file-state-${statusClass}">${escapeHtml((file.status || "received").replace("_", " ").toUpperCase())}</span>`;
       item.querySelector(".inbox-document").addEventListener("click", () => inspectDocument(file.name));
       item.querySelector(".dismiss-button").addEventListener("click", () => dismissDocument(file.name));
       group.append(item);
@@ -167,10 +230,23 @@ async function inspectDocument(filename) {
     const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/prepare`, { method: "POST" });
     if (!response.ok) throw new Error("Document lookup failed");
     const preparedDocument = await response.json();
-    selectedDocument = { filename, processingId: preparedDocument.processing_id };
-    const source = formatSourcePath(preparedDocument.source_path || filename);
+    const queuedDocument = inboxFiles.find((file) => file.name === filename) || null;
+    selectedDocument = {
+      filename,
+      processingId: preparedDocument.processing_id,
+      duplicateOf: queuedDocument?.duplicate_of || null,
+      sourcePath: preparedDocument.source_path || filename,
+      originalName: preparedDocument.original_name || preparedDocument.source_path?.split(/[\\/]/).pop() || filename
+    };
+    const source = formatSourcePath(selectedDocument.sourcePath || filename);
     reviewStatus.textContent = `${source.basename} · source: ${source.fullPath}`;
     reviewFilename.value = preparedDocument.original_name;
+    reviewSourcePath.textContent = selectedDocument.sourcePath.startsWith("/") ? `/data/source/${selectedDocument.sourcePath.replace(/^\//, "")}` : `/data/source/${selectedDocument.sourcePath}`;
+    reviewOriginalFilename.textContent = preparedDocument.original_name;
+    if (selectedDocument.duplicateOf) {
+      reviewDuplicateWarning.hidden = false;
+      reviewDuplicateWarning.textContent = `Duplicate warning: this file matches ${selectedDocument.duplicateOf}. Check the output target before finalizing.`;
+    }
     documentPreview.src = `${API_BASE_URL}/api/processing/${encodeURIComponent(preparedDocument.processing_id)}/file`;
     pageSummary.textContent = `${preparedDocument.page_count} page${preparedDocument.page_count === 1 ? "" : "s"} prepared for review.`;
     const configResponse = await fetch(`${API_BASE_URL}/api/classification/config`);
@@ -314,9 +390,32 @@ async function rotatePage(page, rotation) {
   }
 }
 
+function getNextInboxFile(currentFilename, fileList = inboxFiles) {
+  if (!fileList.length) return null;
+  const currentIndex = fileList.findIndex((file) => file.name === currentFilename);
+  if (currentIndex === -1) return fileList[0] ?? null;
+  return fileList[currentIndex + 1] ?? fileList[0] ?? null;
+}
+
+function getExistingOutputConflict(destinee, outputFilename) {
+  if (!destinee || !outputFilename) return null;
+  const normalized = outputFilename.trim();
+  return historyDocuments.find((entry) => {
+    const entryDestinee = String(entry.destinee || "").trim();
+    if (!entryDestinee || entryDestinee.toLowerCase() !== destinee.toLowerCase()) return false;
+    const destinationPath = String(entry.destination_path || "").trim();
+    return destinationPath && destinationPath.toLowerCase().endsWith(`/${normalized.toLowerCase()}`);
+  }) || null;
+}
+
 finalizeButton.addEventListener("click", async () => {
   if (!selectedDocument || !reviewDestinee.value) {
     finalizeStatus.textContent = "Choose a destinee before finalizing.";
+    return;
+  }
+  const conflict = getExistingOutputConflict(reviewDestinee.value, reviewFilename.value.trim());
+  if (conflict) {
+    finalizeStatus.textContent = `Warning: ${conflict.destination_path || reviewFilename.value.trim()} already exists for this destinee.`;
     return;
   }
   finalizeButton.disabled = true;
@@ -334,8 +433,15 @@ finalizeButton.addEventListener("click", async () => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || "Finalization failed");
     finalizeStatus.textContent = `Classified for ${result.destinee}.`;
+    const nextFiles = await refreshInbox();
+    const nextDocument = getNextInboxFile(selectedDocument.filename, nextFiles);
+    if (nextDocument) {
+      await inspectDocument(nextDocument.name);
+      return;
+    }
+    reviewPanel.hidden = true;
+    document.querySelector(".workflow-layout").classList.remove("review-active");
     finalizeButton.textContent = "Finalized";
-    await refreshInbox();
     await refreshHistory();
   } catch (finalizeError) {
     finalizeStatus.textContent = finalizeError.message;
@@ -367,11 +473,16 @@ async function refreshInbox() {
     const response = await fetch(`${API_BASE_URL}/api/classification/scan`, { method: "POST" });
     if (!response.ok) throw new Error("Scan failed");
     const result = await response.json();
-    renderInbox(result.files);
+    inboxFiles = result.files || [];
+    getInboxFilterOptions();
+    renderInbox(inboxFiles);
     refreshHistory();
+    return inboxFiles;
   } catch {
+    inboxFiles = [];
     inboxList.replaceChildren();
     inboxStatus.textContent = "The n8n input directory is not reachable yet.";
+    return [];
   }
 }
 
@@ -420,24 +531,71 @@ async function loadVersion() {
   }
 }
 
+function getHistoryVisibleEntries() {
+  const searchValue = historySearch?.value.trim().toLowerCase() || "";
+  const folderValue = historyFolderFilter?.value || "all";
+  const statusValue = historyStatusFilter?.value || "all";
+
+  return historyDocuments.filter((entry) => {
+    const source = formatSourcePath(entry.name);
+    const matchesSearch = !searchValue || entry.name.toLowerCase().includes(searchValue) || source.directory.toLowerCase().includes(searchValue) || (entry.destinee || "").toLowerCase().includes(searchValue) || (entry.status || "").toLowerCase().includes(searchValue);
+    const folderMatch = folderValue === "all" || source.directory === folderValue || (folderValue === "root" && source.directory === "root");
+    const statusMatch = statusValue === "all" || (entry.status || "received") === statusValue;
+    return matchesSearch && folderMatch && statusMatch;
+  });
+}
+
+function renderHistory(entries) {
+  historyList.replaceChildren();
+  const visibleEntries = getHistoryVisibleEntries();
+  historyStatus.textContent = visibleEntries.length
+    ? `${visibleEntries.length} document${visibleEntries.length === 1 ? "" : "s"} tracked.`
+    : "No documents match the current history filters.";
+
+  visibleEntries.forEach((entry) => {
+    const item = document.createElement("div");
+    item.className = "history-item";
+    const source = formatSourcePath(entry.name);
+    const sourceLine = source.directory === "root" ? "/data/source" : `/data/source/${source.directory}`;
+    const status = String(entry.status || "received");
+    const duplicateBadge = entry.duplicate_of ? " · duplicate" : "";
+    const archiveStatus = entry.dismissed_path ? "dismissed" : entry.archive_path ? "classified" : status;
+    const displayStatus = archiveStatus === "classified" ? "classified" : archiveStatus === "dismissed" ? "dismissed" : getStatusLabel(status);
+    const fileStateClass = archiveStatus === "dismissed" ? "warning" : archiveStatus === "classified" ? "good" : "neutral";
+    item.innerHTML = `<div><strong>${escapeHtml(source.basename)}</strong><small>${escapeHtml(displayStatus.toUpperCase())}${entry.destinee ? ` · ${escapeHtml(entry.destinee)}` : ""}${duplicateBadge ? ` · ${escapeHtml(duplicateBadge.trim())}` : ""} · ${escapeHtml(sourceLine)}</small></div><span class="file-state file-state-${fileStateClass}">${escapeHtml(displayStatus.toUpperCase())}</span>`;
+    historyList.append(item);
+  });
+}
+
 async function refreshHistory() {
   try {
     const response = await fetch(`${API_BASE_URL}/api/documents/history`);
     if (!response.ok) throw new Error("History request failed");
     const result = await response.json();
-    historyList.replaceChildren();
-    historyStatus.textContent = result.count
-      ? `${result.count} document${result.count === 1 ? "" : "s"} tracked.`
-      : "No documents tracked yet.";
-    result.documents.forEach((entry) => {
-      const item = document.createElement("div");
-      item.className = "history-item";
-      const source = formatSourcePath(entry.name);
-      const sourceLine = source.directory === "root" ? "Source: /data/source" : `Source: /data/source/${source.directory}`;
-      item.innerHTML = `<div><strong>${escapeHtml(source.basename)}</strong><small>${escapeHtml((entry.status || "received").replace("_", " "))}${entry.destinee ? ` · ${escapeHtml(entry.destinee)}` : ""} · ${escapeHtml(sourceLine)}</small></div><span class="file-state">${escapeHtml((entry.status || "received").replace("_", " ").toUpperCase())}</span>`;
-      historyList.append(item);
+    historyDocuments = result.documents || [];
+    const folders = ["all", ...new Set(historyDocuments.map((entry) => formatSourcePath(entry.name).directory).filter(Boolean))];
+    const currentFolderValue = historyFolderFilter.value;
+    historyFolderFilter.replaceChildren();
+    folders.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value === "all" ? "All folders" : value;
+      if (value === currentFolderValue || (currentFolderValue === "" && value === "all")) option.selected = true;
+      historyFolderFilter.append(option);
     });
+    const statusValues = ["all", "received", "in_review", "classified", "dismissed", "duplicate", "failed"];
+    const currentStatus = historyStatusFilter.value;
+    historyStatusFilter.replaceChildren();
+    statusValues.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value === "all" ? "All statuses" : getStatusLabel(value);
+      if (value === currentStatus || (currentStatus === "" && value === "all")) option.selected = true;
+      historyStatusFilter.append(option);
+    });
+    renderHistory(historyDocuments);
   } catch {
+    historyDocuments = [];
     historyList.replaceChildren();
     historyStatus.textContent = "Processing history is not reachable yet.";
   }
@@ -452,8 +610,22 @@ document.querySelector("#add-destinee").addEventListener("click", () => {
 
 document.querySelector("#refresh-inbox").addEventListener("click", refreshInbox);
 document.querySelector("#refresh-history").addEventListener("click", refreshHistory);
+[inboxSearch, inboxFolderFilter, inboxStatusFilter, inboxDuplicateFilter].forEach((element) => {
+  if (!element) return;
+  element.addEventListener("input", () => renderInbox(inboxFiles));
+  element.addEventListener("change", () => renderInbox(inboxFiles));
+});
+[historySearch, historyFolderFilter, historyStatusFilter].forEach((element) => {
+  if (!element) return;
+  element.addEventListener("input", () => renderHistory(historyDocuments));
+  element.addEventListener("change", () => renderHistory(historyDocuments));
+});
 reviewDestinee.addEventListener("change", () => {
   finalizeButton.disabled = !reviewDestinee.value;
+  if (reviewDestinee.value) {
+    const existingConflict = getExistingOutputConflict(reviewDestinee.value, reviewFilename.value.trim());
+    finalizeStatus.textContent = existingConflict ? `Warning: ${existingConflict.destination_path || reviewFilename.value.trim()} already exists for this destinee.` : "";
+  }
 });
 
 documentPreview.addEventListener("load", () => {

@@ -67,6 +67,20 @@
         </div>
         <button type="button" id="refresh-inbox" class="button button-secondary">Refresh <span aria-hidden="true">&#8635;</span></button>
       </div>
+      <div class="filter-toolbar">
+        <input id="inbox-search" type="search" placeholder="Search filename or folder" aria-label="Search inbox">
+        <select id="inbox-folder-filter" aria-label="Filter inbox by source folder">
+          <option value="all">All folders</option>
+        </select>
+        <select id="inbox-status-filter" aria-label="Filter inbox by status">
+          <option value="all">All statuses</option>
+        </select>
+        <select id="inbox-duplicate-filter" aria-label="Filter inbox by duplicate state">
+          <option value="all">All documents</option>
+          <option value="duplicate">Duplicate</option>
+          <option value="unique">Unique</option>
+        </select>
+      </div>
       <p id="inbox-status" class="inbox-status" aria-live="polite">Checking for completed PDFs...</p>
       <div id="inbox-list" class="inbox-list"></div>
     </section>
@@ -88,6 +102,17 @@
         <div class="review-details">
           <div id="page-summary" class="page-summary"></div>
           <p id="analysis-summary" class="analysis-summary"></p>
+          <div class="metadata-stack">
+            <div class="metadata-row">
+              <span class="metadata-label">Source path</span>
+              <strong id="review-source-path">—</strong>
+            </div>
+            <div class="metadata-row">
+              <span class="metadata-label">Original filename</span>
+              <strong id="review-original-filename">—</strong>
+            </div>
+          </div>
+          <p id="review-duplicate-warning" class="duplicate-warning" hidden></p>
           <label for="review-destinee">Route to destinee</label>
           <select id="review-destinee" required>
             <option value="" selected disabled>Choose a destinee</option>
@@ -117,6 +142,15 @@
           <h2 id="history-title">Recent documents</h2>
         </div>
         <button type="button" id="refresh-history" class="button button-secondary">Refresh <span aria-hidden="true">&#8635;</span></button>
+      </div>
+      <div class="filter-toolbar history-toolbar">
+        <input id="history-search" type="search" placeholder="Search history" aria-label="Search processing history">
+        <select id="history-folder-filter" aria-label="Filter history by source folder">
+          <option value="all">All folders</option>
+        </select>
+        <select id="history-status-filter" aria-label="Filter history by status">
+          <option value="all">All statuses</option>
+        </select>
       </div>
       <p id="history-status" class="inbox-status" aria-live="polite">Loading history...</p>
       <div id="history-list" class="history-list"></div>

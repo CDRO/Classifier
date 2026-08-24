@@ -108,10 +108,34 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .finalize-status { min-height: 18px; margin: 9px 0 0; color: var(--green); font: 12px Arial, sans-serif; }
 .page-summary { color: var(--green); font: 700 13px Arial, sans-serif; }
 .analysis-summary { margin: 14px 0 0; color: var(--muted); font: 13px/1.5 Arial, sans-serif; }
+.metadata-stack { display: grid; gap: 10px; margin: 18px 0 12px; }
+.metadata-row { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); background: #f8faf8; }
+.metadata-label { color: var(--muted); font: 700 10px Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; }
+.metadata-row strong { overflow-wrap: anywhere; font: 13px/1.5 Consolas, monospace; }
+.duplicate-warning { margin: 0 0 12px; padding: 8px 10px; border: 1px solid #e9c492; background: #fff8ee; color: #99620d; font: 12px Arial, sans-serif; }
 .analysis-provider { display: inline-block; margin: 0 0 18px; padding: 7px 10px; border: 1px solid var(--line); color: var(--muted); font: 700 11px Arial, sans-serif; letter-spacing: .4px; }
 .provider-gemini { border-color: #e2bd83; background: #fff6e8; color: #9a5b14; }
 .provider-local { border-color: #c7dfcf; background: var(--mint); color: var(--green); }
 .provider-warning { border-color: #e6b08a; background: #fff0e6; color: #9b4d20; }
+.filter-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(120px, 0.8fr));
+  gap: 10px;
+  margin: 16px 0 8px;
+}
+.filter-toolbar input,
+.filter-toolbar select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  font: 13px Arial, sans-serif;
+}
+.history-toolbar { grid-template-columns: minmax(0, 1.7fr) 1fr 1fr; }
+.file-state-good { color: var(--green); }
+.file-state-warning { color: #a15d1b; }
+.file-state-neutral { color: var(--muted); }
 .page-text { max-height: 380px; margin-top: 22px; overflow: auto; }
 .page-text-block { padding: 12px 0; border-top: 1px solid var(--line); }
 .page-thumbnail { display: block; width: min(100%, 360px); max-height: 220px; margin: 0 0 12px; object-fit: contain; object-position: left top; border: 1px solid var(--line); background: #eef1ed; }
