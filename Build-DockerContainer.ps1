@@ -12,7 +12,14 @@ if (-not $version) {
     throw "VERSION file is empty. Set the release version first."
 }
 
-$revision = (git -C $projectRoot rev-parse --short HEAD).Trim()
+$revision = (git -C $projectRoot rev-parse HEAD).Trim()
+if (-not $revision) {
+    throw "Unable to determine the current git revision."
+}
+
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+$hashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($revision))
+$assetVersion = [System.BitConverter]::ToString($hashBytes).Replace("-", "").ToLowerInvariant()
 $dockerImage = "cdro/classifier"
 
 function Ensure-IndexVersionStamp {
@@ -21,13 +28,13 @@ function Ensure-IndexVersionStamp {
     }
 
     $content = Get-Content -Path $indexPath -Raw
-    $updated = $content.Replace("__APP_VERSION__", $version)
+    $updated = $content.Replace("__APP_VERSION__", $assetVersion)
     if ($updated -eq $content) {
         throw "Frontend index template is missing the __APP_VERSION__ placeholder."
     }
 
     Set-Content -Path $indexPath -Value $updated -NoNewline
-    Write-Host "Updated $indexPath with version $version"
+    Write-Host "Updated $indexPath with asset cache version $assetVersion"
 }
 
 function Build-ClassifierImage {
