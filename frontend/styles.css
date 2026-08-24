@@ -57,6 +57,32 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .history-panel { margin-top: 20px; padding: 30px; border: 1px solid var(--line); background: var(--panel); }
 .folder-preview { margin-top: 20px; box-shadow: none; }
 .count, .preview-root { color: var(--muted); font: 12px Arial, sans-serif; }
+.review-status { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; background: #f5f7f4; color: var(--ink); text-align: center; }
+.review-status-neutral { border-color: var(--line); background: #f5f7f4; }
+.review-status-warning { border-color: #f0d29b; background: #fff7ea; color: #8b5b21; }
+.review-status-success { border-color: #cfe0d4; background: var(--mint); color: var(--green); }
+.review-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #f8faf8;
+}
+.summary-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font: 700 10px Arial, sans-serif;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+}
+.summary-chip-neutral { background: #f5f7f4; color: var(--muted); }
+.summary-chip-safe { border-color: #cfe0d4; background: var(--mint); color: var(--green); }
+.summary-chip-warning { border-color: #f0d29b; background: #fff7ea; color: #8b5b21; }
 .preview-root { padding: 8px 10px; background: #f0f4ef; font-family: Consolas, monospace; }
 .help-overlay {
   position: fixed;

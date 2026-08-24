@@ -11,6 +11,7 @@ const inboxList = document.querySelector("#inbox-list");
 const inboxStatus = document.querySelector("#inbox-status");
 const reviewPanel = document.querySelector("#review-panel");
 const reviewStatus = document.querySelector("#review-status");
+const reviewSummary = document.querySelector("#review-summary");
 const analysisProvider = document.querySelector("#analysis-provider");
 const documentPreview = document.querySelector("#document-preview");
 const previewLoader = document.querySelector("#document-preview-loader");
@@ -115,6 +116,7 @@ function resetReviewPanelState() {
   pageText.replaceChildren();
   documentPreview.src = "about:blank";
   previewLoader.classList.add("visible");
+  updateReviewSummary({ duplicate: false, blocked: false, ready: false });
 }
 
 function getStatusLabel(status) {
@@ -293,7 +295,7 @@ async function inspectDocument(filename) {
   reviewPanel.hidden = false;
   document.querySelector(".workflow-layout").classList.add("review-active");
   reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-  reviewStatus.textContent = `Loading ${filename}...`;
+  setReviewStatus(`Loading ${filename}...`, "neutral");
   inboxStatus.textContent = `Loading ${filename}...`;
   try {
     const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/prepare`, { method: "POST" });
@@ -308,7 +310,16 @@ async function inspectDocument(filename) {
       originalName: preparedDocument.original_name || preparedDocument.source_path?.split(/[\\/]/).pop() || filename
     };
     const source = formatSourcePath(selectedDocument.sourcePath || filename);
-    reviewStatus.textContent = `${source.basename} · source: ${source.fullPath} · ${getQueueSummary(filename)}`;
+    const queueSummary = getQueueSummary(filename);
+    const reviewState = selectedDocument.duplicateOf ? "warning" : "neutral";
+    setReviewStatus(`${source.basename} · source: ${source.fullPath} · ${queueSummary}`, reviewState);
+    updateReviewSummary({
+      duplicate: Boolean(selectedDocument.duplicateOf),
+      queuePosition: getVisibleInboxFiles().findIndex((entry) => entry.name === filename) + 1 || null,
+      filename: source.basename,
+      ready: !selectedDocument.duplicateOf,
+      blocked: Boolean(selectedDocument.duplicateOf)
+    });
     reviewFilename.value = preparedDocument.original_name;
     reviewSourcePath.textContent = selectedDocument.sourcePath.startsWith("/") ? `/data/source/${selectedDocument.sourcePath.replace(/^\//, "")}` : `/data/source/${selectedDocument.sourcePath}`;
     reviewOriginalFilename.textContent = preparedDocument.original_name;
@@ -459,6 +470,38 @@ async function rotatePage(page, rotation) {
   }
 }
 
+function setReviewStatus(message, variant = "neutral") {
+  if (!reviewStatus) return;
+  reviewStatus.textContent = message;
+  reviewStatus.className = `count review-status review-status-${variant}`;
+}
+
+function updateReviewSummary({ duplicate = false, blocked = false, ready = false, queuePosition = null, filename = null, destinee = null }) {
+  if (!reviewSummary) return;
+
+  const chips = [];
+  if (queuePosition !== null) {
+    chips.push(`<span class="summary-chip summary-chip-neutral">Queue #${queuePosition}</span>`);
+  }
+  if (duplicate) {
+    chips.push('<span class="summary-chip summary-chip-warning">Duplicate</span>');
+  } else {
+    chips.push('<span class="summary-chip summary-chip-safe">Unique</span>');
+  }
+  if (filename) {
+    chips.push(`<span class="summary-chip summary-chip-neutral">${escapeHtml(filename)}</span>`);
+  }
+  if (destinee) {
+    chips.push(`<span class="summary-chip summary-chip-safe">${escapeHtml(destinee)}</span>`);
+  } else if (ready) {
+    chips.push('<span class="summary-chip summary-chip-safe">Ready</span>');
+  } else if (blocked) {
+    chips.push('<span class="summary-chip summary-chip-warning">Needs attention</span>');
+  }
+
+  reviewSummary.innerHTML = chips.length ? chips.join("") : '<span class="summary-chip summary-chip-neutral">Awaiting document</span>';
+}
+
 function getQueueSummary(filename) {
   const visibleFiles = getVisibleInboxFiles();
   if (!visibleFiles.length) return "Queue: no documents";
@@ -489,6 +532,14 @@ function updateFinalizeWarnings() {
   if (!selectedDocument || !reviewDestinee.value) {
     finalizeButton.disabled = true;
     finalizeStatus.textContent = "";
+    setReviewStatus(selectedDocument ? `${selectedDocument.filename} · awaiting destinee` : "No document selected", selectedDocument && selectedDocument.duplicateOf ? "warning" : "neutral");
+    updateReviewSummary({
+      duplicate: Boolean(selectedDocument?.duplicateOf),
+      queuePosition: selectedDocument ? getVisibleInboxFiles().findIndex((entry) => entry.name === selectedDocument.filename) + 1 || null : null,
+      filename: selectedDocument ? formatSourcePath(selectedDocument.filename).basename : null,
+      blocked: Boolean(selectedDocument?.duplicateOf),
+      ready: Boolean(selectedDocument) && !selectedDocument?.duplicateOf
+    });
     return;
   }
 
@@ -498,17 +549,44 @@ function updateFinalizeWarnings() {
   if (!filename) {
     finalizeStatus.textContent = "Choose a valid output filename before finalizing.";
     finalizeButton.disabled = true;
+    setReviewStatus(`${selectedDocument.filename} · output filename required`, "warning");
+    updateReviewSummary({
+      duplicate: Boolean(selectedDocument.duplicateOf),
+      queuePosition: getVisibleInboxFiles().findIndex((entry) => entry.name === selectedDocument.filename) + 1 || null,
+      filename: formatSourcePath(selectedDocument.filename).basename,
+      blocked: true,
+      ready: false,
+      destinee: reviewDestinee.value
+    });
     return;
   }
 
   if (conflict) {
     finalizeStatus.textContent = `Conflict: ${conflict.destination_path || filename} already exists for ${reviewDestinee.value}. Pick a different filename.`;
     finalizeButton.disabled = true;
+    setReviewStatus(`${selectedDocument.filename} · output conflict`, "warning");
+    updateReviewSummary({
+      duplicate: Boolean(selectedDocument.duplicateOf),
+      queuePosition: getVisibleInboxFiles().findIndex((entry) => entry.name === selectedDocument.filename) + 1 || null,
+      filename: formatSourcePath(selectedDocument.filename).basename,
+      blocked: true,
+      ready: false,
+      destinee: reviewDestinee.value
+    });
     return;
   }
 
   finalizeStatus.textContent = "Ready to finalize.";
   finalizeButton.disabled = false;
+  setReviewStatus(`${selectedDocument.filename} · ready to route to ${reviewDestinee.value}`, "success");
+  updateReviewSummary({
+    duplicate: Boolean(selectedDocument.duplicateOf),
+    queuePosition: getVisibleInboxFiles().findIndex((entry) => entry.name === selectedDocument.filename) + 1 || null,
+    filename: formatSourcePath(selectedDocument.filename).basename,
+    ready: true,
+    blocked: false,
+    destinee: reviewDestinee.value
+  });
 }
 
 finalizeButton.addEventListener("click", async () => {
@@ -536,6 +614,7 @@ finalizeButton.addEventListener("click", async () => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || "Finalization failed");
     finalizeStatus.textContent = `Classified for ${result.destinee}.`;
+    setReviewStatus(`${selectedDocument.filename} · classified for ${result.destinee}`, "success");
     const nextFiles = await refreshInbox();
     const nextDocument = getNextInboxFile(selectedDocument.filename, nextFiles);
     if (nextDocument) {
