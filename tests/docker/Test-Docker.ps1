@@ -167,6 +167,15 @@ try {
     Assert-Equal $classifiedState.archive_path "/data/archive/handoff.pdf" "Archive path mismatch"
     Assert-Equal $classifiedState.destination_path "/data/destination/Shared/renamed-handoff.pdf" "Renamed destination path mismatch"
 
+    docker exec $container sh -c "cp /data/archive/handoff.pdf /data/source/redelivered.pdf"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not create duplicate source fixture."
+    }
+    $duplicateScan = Invoke-RestMethod -Uri "$baseUrl/api/classification/scan" -Method Post
+    Assert-Equal $duplicateScan.count 1 "Duplicate scan count mismatch"
+    Assert-Equal $duplicateScan.files[0].status "duplicate" "Duplicate document status mismatch"
+    Remove-Item -Force (Join-Path $sourcePath "redelivered.pdf")
+
     try {
         Invoke-RestMethod -Uri "$baseUrl/api/documents/..%2Fincomplete.pdf" -Method Get | Out-Null
         throw "Path traversal request was accepted."

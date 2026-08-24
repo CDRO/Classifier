@@ -232,6 +232,8 @@ Docker & Docker Compose
 - `POST /api/classification/config` - Add, rename, remove, or reorder destinees
 - `POST /api/classification/scan` - Scan the n8n input directory for completed PDFs
 
+Each scanned PDF receives a SHA-256 content identity. A new filename with a hash already associated with a classified document is reported as `duplicate`.
+
 ### 3.2 AI API Integration
 
 **Gemini Request (Vision/Classification):**

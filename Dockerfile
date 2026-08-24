@@ -1,9 +1,5 @@
 FROM python:3.12-alpine
 
-ARG APP_VERSION=dev
-LABEL org.opencontainers.image.version=$APP_VERSION
-ENV APP_VERSION=$APP_VERSION
-
 WORKDIR /app
 
 RUN apk add --no-cache libstdc++ \
@@ -16,6 +12,9 @@ RUN mkdir -p /data/source /data/destination /data/archive /data/config
 COPY frontend/ ./frontend/
 COPY app/ ./app/
 
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+LABEL org.opencontainers.image.version=$APP_VERSION
 
 EXPOSE 3000
 

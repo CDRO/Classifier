@@ -2,6 +2,7 @@
 
 import json
 import base64
+import hashlib
 import os
 import re
 import shutil
@@ -131,6 +132,14 @@ def write_document_state(filename: str, status: str, **details: object) -> None:
     states[filename] = {"status": status, **details}
     DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
+
+
+def calculate_file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def read_analysis_status() -> dict:
@@ -357,9 +366,19 @@ def scan_input_directory() -> dict:
     if not SOURCE_PATH.exists() or not SOURCE_PATH.is_dir():
         raise HTTPException(status_code=503, detail="n8n input directory is unavailable")
     states = read_document_states()
+    classified_hashes = {
+        details.get("sha256")
+        for details in states.values()
+        if isinstance(details, dict) and details.get("status") == "classified"
+    }
     for path in SOURCE_PATH.iterdir():
         if path.is_file() and path.suffix.casefold() == ".pdf" and not path.name.startswith("."):
-            states.setdefault(path.name, {"status": "received"})
+            file_hash = calculate_file_hash(path)
+            if path.name not in states:
+                status = "duplicate" if file_hash in classified_hashes else "received"
+                states[path.name] = {"status": status, "sha256": file_hash}
+            elif states[path.name].get("sha256") != file_hash:
+                states[path.name]["sha256"] = file_hash
     DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
     files = [
@@ -368,6 +387,7 @@ def scan_input_directory() -> dict:
             "path": str(path),
             "size": path.stat().st_size,
             "status": states.get(path.name, {}).get("status", "received"),
+            "sha256": states.get(path.name, {}).get("sha256"),
         }
         for path in SOURCE_PATH.iterdir()
         if path.is_file() and path.suffix.casefold() == ".pdf" and not path.name.startswith(".")
@@ -460,6 +480,7 @@ def prepare_document(filename: str) -> dict:
             document_path.name,
             "in_review",
             processing_id=processing_id,
+            sha256=calculate_file_hash(processing_path),
         )
     except (OSError, fitz.FileDataError) as exc:
         try:
@@ -494,7 +515,13 @@ def analyze_document(filename: str, processing_id: str) -> dict:
     except (OSError, fitz.FileDataError) as exc:
         write_document_state(filename, "failed", error="Unable to analyze PDF")
         raise HTTPException(status_code=422, detail="Unable to analyze PDF") from exc
-    write_document_state(filename, "in_review", processing_id=processing_id, **result)
+    write_document_state(
+        filename,
+        "in_review",
+        processing_id=processing_id,
+        sha256=calculate_file_hash(processing_path),
+        **result,
+    )
     return {"status": "in_review", **result}
 
 
@@ -538,6 +565,7 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
             destinee=matching_destinee,
             destination_path=str(destination_file),
             archive_path=str(archived_file),
+            sha256=calculate_file_hash(archived_file),
         )
         shutil.rmtree(processing_path.parent, ignore_errors=True)
     except HTTPException:
