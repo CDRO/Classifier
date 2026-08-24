@@ -127,6 +127,8 @@ finalizeButton.addEventListener("click", async () => {
     if (!response.ok) throw new Error(result.detail || "Finalization failed");
     finalizeStatus.textContent = `Classified for ${result.destinee}.`;
     finalizeButton.textContent = "Finalized";
+    await refreshInbox();
+    await refreshHistory();
   } catch (finalizeError) {
     finalizeStatus.textContent = finalizeError.message;
     finalizeButton.disabled = false;

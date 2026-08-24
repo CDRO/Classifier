@@ -4,7 +4,7 @@ WORKDIR /app
 
 RUN apk add --no-cache libstdc++ \
 	&& pip install --no-cache-dir fastapi uvicorn pymupdf
-RUN mkdir -p /data/source /data/destination /data/config
+RUN mkdir -p /data/source /data/destination /data/archive /data/config
 
 COPY frontend/ ./frontend/
 COPY app/ ./app/

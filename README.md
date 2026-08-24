@@ -129,6 +129,8 @@ External source access, including Google Drive or email, is configured in n8n. T
 
 **Output root:** `/data/destination/`
 
+After successful finalization, the source PDF is moved from `/data/source` to `/data/archive` so the n8n inbox contains only unprocessed documents.
+
 **Features:**
 - One output folder per configured destinee
 - Initial destinees: `Destinee A`, `Destinee B`, `Destinee C`

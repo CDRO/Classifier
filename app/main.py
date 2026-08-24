@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 DEFAULT_DESTINEES = ["Destinee A", "Destinee B", "Destinee C"]
 SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
 DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))
+ARCHIVE_PATH = Path(os.getenv("PROCESSED_ARCHIVE_PATH", "/data/archive"))
 CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json"))
 DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
 TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
@@ -180,17 +181,26 @@ def get_document(filename: str) -> dict:
     if document_path.parent != source_root:
         raise HTTPException(status_code=404, detail="Document not found")
     if not document_path.is_file() or document_path.suffix.casefold() != ".pdf":
-        raise HTTPException(status_code=404, detail="Document not found")
+        archived_path = (ARCHIVE_PATH / filename).resolve()
+        if (
+            archived_path.parent != ARCHIVE_PATH.resolve()
+            or not archived_path.is_file()
+            or archived_path.suffix.casefold() != ".pdf"
+        ):
+            raise HTTPException(status_code=404, detail="Document not found")
+        document_path = archived_path
     try:
         metadata = document_path.stat()
     except OSError as exc:
         raise HTTPException(status_code=404, detail="Document not found") from exc
+    state = read_document_states().get(filename, {})
     return {
         "name": document_path.name,
         "path": str(document_path),
         "size": metadata.st_size,
         "modified": metadata.st_mtime,
-        "status": read_document_states().get(filename, {}).get("status", "received"),
+        "status": state.get("status", "received"),
+        **{key: value for key, value in state.items() if key != "status"},
     }
 
 
@@ -273,17 +283,23 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
 
     destination_directory = DESTINATION_PATH / matching_destinee
     destination_file = destination_directory / document_path.name
+    archived_file = ARCHIVE_PATH / document_path.name
     try:
         destination_directory.mkdir(parents=True, exist_ok=True)
+        ARCHIVE_PATH.mkdir(parents=True, exist_ok=True)
+        if archived_file.exists():
+            raise HTTPException(status_code=409, detail="An archived document with this name already exists")
         if destination_file.exists():
             raise HTTPException(status_code=409, detail="A document with this name already exists")
         shutil.copy2(processing_path, destination_file)
+        shutil.move(str(document_path), archived_file)
         write_document_state(
             document_path.name,
             "classified",
             processing_id=request.processing_id,
             destinee=matching_destinee,
             destination_path=str(destination_file),
+            archive_path=str(archived_file),
         )
     except HTTPException:
         raise
@@ -295,6 +311,7 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         "filename": document_path.name,
         "destinee": matching_destinee,
         "destination_path": str(destination_file),
+        "archive_path": str(archived_file),
     }
 
 

@@ -5,6 +5,7 @@ $container = "classifier-integration-$([guid]::NewGuid().ToString('N').Substring
 $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) $container
 $sourcePath = Join-Path $testRoot "source"
 $destinationPath = Join-Path $testRoot "destination"
+$archivePath = Join-Path $testRoot "archive"
 $configPath = Join-Path $testRoot "config"
 $tempPath = Join-Path $testRoot "temp"
 $portProbe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
@@ -21,7 +22,7 @@ function Assert-Equal {
 }
 
 try {
-    New-Item -ItemType Directory -Path $sourcePath, $destinationPath, $configPath, $tempPath | Out-Null
+    New-Item -ItemType Directory -Path $sourcePath, $destinationPath, $archivePath, $configPath, $tempPath | Out-Null
     Set-Content -Path (Join-Path $sourcePath "handoff.pdf") -Value "%PDF-1.4"
     Set-Content -Path (Join-Path $sourcePath "handoff.tmp") -Value "incomplete"
 
@@ -37,6 +38,7 @@ try {
     docker run -d --name $container -p "${port}:3000" `
         -v "${sourcePath}:/data/source" `
         -v "${destinationPath}:/data/destination" `
+        -v "${archivePath}:/data/archive" `
         -v "${configPath}:/data/config" `
         -v "${tempPath}:/data/temp" `
         $image | Out-Null
@@ -114,8 +116,17 @@ try {
     if (-not (Test-Path (Join-Path $destinationPath "Shared\handoff.pdf"))) {
         throw "Finalized PDF was not written to the destinee folder."
     }
+    if (Test-Path (Join-Path $sourcePath "handoff.pdf")) {
+        throw "Finalized PDF still appears in the n8n inbox."
+    }
+    if (-not (Test-Path (Join-Path $archivePath "handoff.pdf"))) {
+        throw "Finalized PDF was not moved to the processed archive."
+    }
+    $inboxAfterFinalize = Invoke-RestMethod -Uri "$baseUrl/api/classification/scan" -Method Post
+    Assert-Equal $inboxAfterFinalize.count 0 "Processed PDF remained in inbox scan"
     $classifiedState = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get
     Assert-Equal $classifiedState.status "classified" "Final document status mismatch"
+    Assert-Equal $classifiedState.archive_path "/data/archive/handoff.pdf" "Archive path mismatch"
 
     try {
         Invoke-RestMethod -Uri "$baseUrl/api/documents/..%2Fincomplete.pdf" -Method Get | Out-Null

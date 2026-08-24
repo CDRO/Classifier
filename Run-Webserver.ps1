@@ -11,7 +11,7 @@ function Build-Image {
 function Start-Container {
     Write-Host "Starting container..."
     # Adapt paths to your needs
-    docker run -d --name (Split-Path $PWD -Leaf).ToLower() -p 3000:3000 -v "$(Get-Location)/log:/var/log/$((Split-Path $PWD -Leaf).ToLower())/" -v "$(Get-Location)/app/data:/data/config/" -v "$(Get-Location)/data/Originals_RAW:/data/source" -v "$(Get-Location)/data/Destination:/data/destination" --env-file docker.env (Split-Path $PWD -Leaf).ToLower() | Out-Null
+    docker run -d --name (Split-Path $PWD -Leaf).ToLower() -p 3000:3000 -v "$(Get-Location)/log:/var/log/$((Split-Path $PWD -Leaf).ToLower())/" -v "$(Get-Location)/app/data:/data/config/" -v "$(Get-Location)/data/Originals_RAW:/data/source" -v "$(Get-Location)/data/Destination:/data/destination" -v "$(Get-Location)/data/Archive:/data/archive" --env-file docker.env (Split-Path $PWD -Leaf).ToLower() | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Docker run failed with exit code $LASTEXITCODE"
     }

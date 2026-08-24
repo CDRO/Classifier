@@ -199,7 +199,7 @@ Docker & Docker Compose
 - `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee
 - `GET /api/documents/history` - Return persisted document lifecycle history
 
-**Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration.
+**Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration. Finalization writes the classified copy, then moves the original out of `/data/source` into `/data/archive/` so it no longer appears in the n8n inbox.
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails
 - `DELETE /api/document/{doc_id}` - Remove document from processing queue
 
@@ -275,7 +275,8 @@ External source integrations are deliberately outside the classifier. n8n fetche
 - Input: `/data/source`
 - Classified output root: `/data/destination/`
 - Destinee output: `/data/destination/{destinee}/`
-- Processing temporary files: `/volume1/Temp/processing/{doc_id}/`
+- Processing temporary files: `/data/temp/processing/{doc_id}/`
+- Processed source archive: `/data/archive/`
 
 The existing `StorageBackend` abstraction remains available for a future external output provider, but it is not part of the initial n8n/local implementation path.
 
