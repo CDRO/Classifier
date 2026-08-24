@@ -1095,7 +1095,7 @@ The Docker integration test at `tests/docker/Test-Docker.ps1` validates the buil
 2. Add a completed PDF and an incomplete temporary file to the source directory.
 3. Build the current `Dockerfile` image.
 4. Start one uniquely named container on a dynamically allocated free port.
-5. Verify the API, n8n scan behavior, document metadata inspection, PDF preparation, browser file serving, path traversal protection, configuration update, and mounted destinee-folder creation.
+5. Verify the API, n8n scan behavior, document metadata inspection, PDF preparation, browser file serving, path traversal protection, destinee finalization, configuration update, and mounted destinee-folder creation.
 6. Remove the test container and temporary directories in `finally`, whether assertions pass or fail.
 
 Run it from PowerShell:

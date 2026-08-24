@@ -97,6 +97,18 @@ try {
         throw "Prepared PDF was not written to processing storage."
     }
 
+    $finalizePayload = @{
+        processing_id = $prepared.processing_id
+        destinee = "Shared"
+    } | ConvertTo-Json
+    $finalized = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/finalize" -Method Post `
+        -ContentType "application/json" -Body $finalizePayload
+    Assert-Equal $finalized.status "classified" "Finalization status mismatch"
+    Assert-Equal $finalized.destinee "Shared" "Finalization destinee mismatch"
+    if (-not (Test-Path (Join-Path $destinationPath "Shared\handoff.pdf"))) {
+        throw "Finalized PDF was not written to the destinee folder."
+    }
+
     try {
         Invoke-RestMethod -Uri "$baseUrl/api/documents/..%2Fincomplete.pdf" -Method Get | Out-Null
         throw "Path traversal request was accepted."

@@ -69,6 +69,9 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .review-grid iframe { width: 100%; height: 520px; border: 1px solid var(--line); background: #eef1ed; }
 .review-details label { display: block; margin-top: 22px; color: var(--muted); font: 700 11px Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; }
 .review-details select { width: 100%; margin-top: 8px; padding: 12px; border: 1px solid var(--line); background: white; color: var(--ink); }
+.review-details .button { width: 100%; justify-content: center; margin-top: 16px; }
+.review-details .button:disabled { cursor: not-allowed; opacity: .55; }
+.finalize-status { min-height: 18px; margin: 9px 0 0; color: var(--green); font: 12px Arial, sans-serif; }
 .page-summary { color: var(--green); font: 700 13px Arial, sans-serif; }
 .page-text { max-height: 380px; margin-top: 22px; overflow: auto; }
 .page-text-block { padding: 12px 0; border-top: 1px solid var(--line); }

@@ -52,6 +52,13 @@ class ClassificationResponse(ClassificationConfig):
     output_root: str
 
 
+class FinalizeRequest(BaseModel):
+    """Request to route a prepared document to one configured destinee."""
+
+    processing_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-f0-9]+$")
+    destinee: str = Field(min_length=1, max_length=80)
+
+
 app = FastAPI(title="Document Classifier API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -188,6 +195,46 @@ def prepare_document(filename: str) -> dict:
         "processing_path": str(processing_path),
         "page_count": len(pages),
         "pages": pages,
+    }
+
+
+@app.post("/api/documents/{filename}/finalize")
+def finalize_document(filename: str, request: FinalizeRequest) -> dict:
+    """Route a prepared PDF to a configured destinee without overwriting files."""
+    document_path = (SOURCE_PATH / filename).resolve()
+    if document_path.parent != SOURCE_PATH.resolve() or document_path.suffix.casefold() != ".pdf":
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    configured_destinees = read_config()
+    matching_destinee = next(
+        (value for value in configured_destinees if value.casefold() == request.destinee.casefold()),
+        None,
+    )
+    if matching_destinee is None:
+        raise HTTPException(status_code=400, detail="Destinee is not configured")
+
+    processing_path = (TEMP_PATH / "processing" / request.processing_id / "original.pdf").resolve()
+    processing_root = (TEMP_PATH / "processing").resolve()
+    if processing_path.parent.parent != processing_root or not processing_path.is_file():
+        raise HTTPException(status_code=404, detail="Prepared document not found")
+
+    destination_directory = DESTINATION_PATH / matching_destinee
+    destination_file = destination_directory / document_path.name
+    try:
+        destination_directory.mkdir(parents=True, exist_ok=True)
+        if destination_file.exists():
+            raise HTTPException(status_code=409, detail="A document with this name already exists")
+        shutil.copy2(processing_path, destination_file)
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="Unable to finalize document") from exc
+
+    return {
+        "status": "classified",
+        "filename": document_path.name,
+        "destinee": matching_destinee,
+        "destination_path": str(destination_file),
     }
 
 

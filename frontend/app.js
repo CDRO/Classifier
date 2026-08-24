@@ -15,6 +15,9 @@ const documentPreview = document.querySelector("#document-preview");
 const pageSummary = document.querySelector("#page-summary");
 const reviewDestinee = document.querySelector("#review-destinee");
 const pageText = document.querySelector("#page-text");
+const finalizeButton = document.querySelector("#finalize-document");
+const finalizeStatus = document.querySelector("#finalize-status");
+let selectedDocument = null;
 
 function loadDestinees() {
   try {
@@ -78,6 +81,7 @@ async function inspectDocument(filename) {
     const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/prepare`, { method: "POST" });
     if (!response.ok) throw new Error("Document lookup failed");
     const preparedDocument = await response.json();
+    selectedDocument = { filename, processingId: preparedDocument.processing_id };
     reviewPanel.hidden = false;
     reviewStatus.textContent = preparedDocument.original_name;
     documentPreview.src = `${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/file`;
@@ -98,12 +102,34 @@ async function inspectDocument(filename) {
       option.textContent = destinee;
       reviewDestinee.append(option);
     });
+    finalizeButton.disabled = false;
+    finalizeStatus.textContent = "";
     inboxStatus.textContent = `${preparedDocument.original_name} is ready for destinee review.`;
     reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch {
     inboxStatus.textContent = "The document could not be loaded from the n8n input directory.";
   }
 }
+
+finalizeButton.addEventListener("click", async () => {
+  if (!selectedDocument || !reviewDestinee.value) return;
+  finalizeButton.disabled = true;
+  finalizeStatus.textContent = "Finalizing...";
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(selectedDocument.filename)}/finalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ processing_id: selectedDocument.processingId, destinee: reviewDestinee.value })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Finalization failed");
+    finalizeStatus.textContent = `Classified for ${result.destinee}.`;
+    finalizeButton.textContent = "Finalized";
+  } catch (finalizeError) {
+    finalizeStatus.textContent = finalizeError.message;
+    finalizeButton.disabled = false;
+  }
+});
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;

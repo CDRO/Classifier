@@ -196,6 +196,7 @@ Docker & Docker Compose
 - `GET /api/documents/{filename}` - Inspect one completed PDF from the n8n input directory
 - `GET /api/documents/{filename}/file` - Serve one source PDF for browser review
 - `POST /api/documents/{filename}/prepare` - Copy and inspect a PDF in processing storage
+- `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails
 - `DELETE /api/document/{doc_id}` - Remove document from processing queue
 

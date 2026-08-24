@@ -80,3 +80,34 @@ def test_get_document_rejects_path_traversal(monkeypatch, tmp_path):
     response = TestClient(main.app).get("/api/documents/..%2Foutside.pdf")
 
     assert response.status_code == 404
+
+
+def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path):
+    main, source, destination = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    document.write_bytes(b"prepared pdf")
+    client = TestClient(main.app)
+    prepared = client.post("/api/documents/invoice.pdf/prepare").json()
+
+    response = client.post(
+        "/api/documents/invoice.pdf/finalize",
+        json={"processing_id": prepared["processing_id"], "destinee": "Destinee A"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "classified"
+    assert (destination / "Destinee A" / "invoice.pdf").read_bytes() == b"prepared pdf"
+
+
+def test_finalize_rejects_unknown_destinee(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (source / "invoice.pdf").write_bytes(b"prepared pdf")
+    client = TestClient(main.app)
+    prepared = client.post("/api/documents/invoice.pdf/prepare").json()
+
+    response = client.post(
+        "/api/documents/invoice.pdf/finalize",
+        json={"processing_id": prepared["processing_id"], "destinee": "Unknown"},
+    )
+
+    assert response.status_code == 400
