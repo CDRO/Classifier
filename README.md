@@ -198,6 +198,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 ### Immediate (Tier 1 Completion)
 - [x] Scan n8n input and inspect individual documents through the API
 - [x] Run document-inbox and inspection checks in a disposable Docker container
+- [x] Prepare selected PDFs and display review metadata in the native UI
 - [ ] Implement Google Drive API integration (replace TODO placeholders)
 - [ ] Run full test suite with real Google Drive API
 - [ ] Security audit for credential handling

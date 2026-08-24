@@ -11,6 +11,7 @@ from typing import List
 import pymupdf as fitz
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -140,6 +141,15 @@ def get_document(filename: str) -> dict:
         "size": metadata.st_size,
         "modified": metadata.st_mtime,
     }
+
+
+@app.get("/api/documents/{filename}/file")
+def serve_document(filename: str):
+    """Serve one source PDF for browser review without exposing other paths."""
+    document_path = (SOURCE_PATH / filename).resolve()
+    if document_path.parent != SOURCE_PATH.resolve() or not document_path.is_file() or document_path.suffix.casefold() != ".pdf":
+        raise HTTPException(status_code=404, detail="Document not found")
+    return FileResponse(document_path, media_type="application/pdf", filename=document_path.name)
 
 
 @app.post("/api/documents/{filename}/prepare")

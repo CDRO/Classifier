@@ -69,6 +69,25 @@
       <div id="inbox-list" class="inbox-list"></div>
     </section>
 
+    <section id="review-panel" class="review-panel" aria-labelledby="review-title" hidden>
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">DOCUMENT REVIEW</p>
+          <h2 id="review-title">Inspect before routing</h2>
+        </div>
+        <span id="review-status" class="count">No document selected</span>
+      </div>
+      <div class="review-grid">
+        <iframe id="document-preview" title="Selected document preview"></iframe>
+        <div class="review-details">
+          <div id="page-summary" class="page-summary"></div>
+          <label for="review-destinee">Proposed destinee</label>
+          <select id="review-destinee"></select>
+          <div id="page-text" class="page-text"></div>
+        </div>
+      </div>
+    </section>
+
     <section class="folder-preview" aria-labelledby="preview-title">
       <div class="preview-heading">
         <div>

@@ -83,6 +83,10 @@ try {
         throw "Document metadata did not report a positive file size."
     }
 
+    $fileResponse = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/api/documents/handoff.pdf/file"
+    Assert-Equal $fileResponse.StatusCode 200 "PDF file response status mismatch"
+    Assert-Equal $fileResponse.Headers["Content-Type"] "application/pdf" "PDF content type mismatch"
+
     $prepared = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/prepare" -Method Post
     Assert-Equal $prepared.original_name "handoff.pdf" "Prepared filename mismatch"
     Assert-Equal $prepared.page_count 1 "Prepared page count mismatch"

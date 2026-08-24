@@ -9,6 +9,12 @@ const count = document.querySelector("#count");
 const error = document.querySelector("#form-error");
 const inboxList = document.querySelector("#inbox-list");
 const inboxStatus = document.querySelector("#inbox-status");
+const reviewPanel = document.querySelector("#review-panel");
+const reviewStatus = document.querySelector("#review-status");
+const documentPreview = document.querySelector("#document-preview");
+const pageSummary = document.querySelector("#page-summary");
+const reviewDestinee = document.querySelector("#review-destinee");
+const pageText = document.querySelector("#page-text");
 
 function loadDestinees() {
   try {
@@ -69,10 +75,31 @@ function renderInbox(files) {
 async function inspectDocument(filename) {
   inboxStatus.textContent = `Loading ${filename}...`;
   try {
-    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}`);
+    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/prepare`, { method: "POST" });
     if (!response.ok) throw new Error("Document lookup failed");
     const document = await response.json();
-    inboxStatus.textContent = `${document.name} is ready for inspection (${formatBytes(document.size)}).`;
+    reviewPanel.hidden = false;
+    reviewStatus.textContent = document.original_name;
+    documentPreview.src = `${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}/file`;
+    pageSummary.textContent = `${document.page_count} page${document.page_count === 1 ? "" : "s"} prepared for review.`;
+    pageText.replaceChildren();
+    document.pages.forEach((page) => {
+      const block = document.createElement("article");
+      block.className = "page-text-block";
+      block.innerHTML = `<strong>Page ${page.page}</strong><p>${escapeHtml(page.text || "No text extracted.")}</p>`;
+      pageText.append(block);
+    });
+    const configResponse = await fetch(`${API_BASE_URL}/api/classification/config`);
+    const config = await configResponse.json();
+    reviewDestinee.replaceChildren();
+    config.destinees.forEach((destinee) => {
+      const option = document.createElement("option");
+      option.value = destinee;
+      option.textContent = destinee;
+      reviewDestinee.append(option);
+    });
+    inboxStatus.textContent = `${document.original_name} is ready for destinee review.`;
+    reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch {
     inboxStatus.textContent = "The document could not be loaded from the n8n input directory.";
   }
