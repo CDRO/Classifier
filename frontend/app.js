@@ -456,6 +456,32 @@ function getExistingOutputConflict(destinee, outputFilename) {
   }) || null;
 }
 
+function updateFinalizeWarnings() {
+  if (!selectedDocument || !reviewDestinee.value) {
+    finalizeButton.disabled = true;
+    finalizeStatus.textContent = "";
+    return;
+  }
+
+  const filename = reviewFilename.value.trim();
+  const conflict = getExistingOutputConflict(reviewDestinee.value, filename);
+
+  if (!filename) {
+    finalizeStatus.textContent = "Choose a valid output filename before finalizing.";
+    finalizeButton.disabled = true;
+    return;
+  }
+
+  if (conflict) {
+    finalizeStatus.textContent = `Conflict: ${conflict.destination_path || filename} already exists for ${reviewDestinee.value}. Pick a different filename.`;
+    finalizeButton.disabled = true;
+    return;
+  }
+
+  finalizeStatus.textContent = "Ready to finalize.";
+  finalizeButton.disabled = false;
+}
+
 finalizeButton.addEventListener("click", async () => {
   if (!selectedDocument || !reviewDestinee.value) {
     finalizeStatus.textContent = "Choose a destinee before finalizing.";
@@ -719,11 +745,18 @@ document.querySelector("#clear-history-filters").addEventListener("click", () =>
   element.addEventListener("change", () => renderHistory(historyDocuments));
 });
 reviewDestinee.addEventListener("change", () => {
-  finalizeButton.disabled = !reviewDestinee.value;
-  if (reviewDestinee.value) {
-    const existingConflict = getExistingOutputConflict(reviewDestinee.value, reviewFilename.value.trim());
-    finalizeStatus.textContent = existingConflict ? `Warning: ${existingConflict.destination_path || reviewFilename.value.trim()} already exists for this destinee.` : "";
+  if (!reviewDestinee.value) {
+    finalizeButton.disabled = true;
+    finalizeStatus.textContent = "";
+    return;
   }
+
+  updateFinalizeWarnings();
+});
+
+reviewFilename.addEventListener("input", () => {
+  if (!selectedDocument) return;
+  updateFinalizeWarnings();
 });
 
 window.addEventListener("keydown", async (event) => {
