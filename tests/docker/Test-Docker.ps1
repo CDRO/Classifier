@@ -68,6 +68,7 @@ try {
     $analysisStatus = Invoke-RestMethod -Uri "$baseUrl/api/analysis/status" -Method Get
     Assert-Equal $analysisStatus.gemini_configured $false "Unexpected Gemini configuration in isolated test"
     Assert-Equal $analysisStatus.fallback "local" "Analysis fallback mismatch"
+    Assert-Equal $analysisStatus.available $false "Unexpected Gemini availability in isolated test"
 
     $version = Invoke-RestMethod -Uri "$baseUrl/api/version" -Method Get
     Assert-Equal $version.version "integration-test" "Container version mismatch"
@@ -119,6 +120,7 @@ try {
     Assert-Equal $analysis.topic "Invoice" "Content topic mismatch"
     Assert-Equal $analysis.category "Invoice" "Content category mismatch"
     Assert-Equal $analysis.analysis_source "local" "Unexpected analysis source"
+    Assert-Equal $analysis.language "unknown" "Unexpected local analysis language"
     if (-not $analysis.title -or -not $analysis.summary) {
         throw "Rich content analysis fields were not returned."
     }

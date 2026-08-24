@@ -203,8 +203,10 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Run document-inbox and inspection checks in a disposable Docker container
 - [x] Prepare selected PDFs and display review metadata in the native UI
 - [x] Analyze PDF text locally and suggest a descriptive output filename
+- [x] Ask Gemini to suggest filenames using the document's language
 - [x] Add optional Gemini enrichment with local fallback
 - [x] Show Gemini configuration and actual analysis provider in the review UI
+- [x] Show Gemini quota/outage warnings and clear them after recovery
 - [x] Show the running Docker image version in the interface
 - [x] Require explicit user-selected destinee routing without AI proposals
 - [x] Verify Gemini 3.6 Flash analysis with the configured server key

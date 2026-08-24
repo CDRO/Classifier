@@ -25,6 +25,7 @@ DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination")
 ARCHIVE_PATH = Path(os.getenv("PROCESSED_ARCHIVE_PATH", "/data/archive"))
 CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json"))
 DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
+ANALYSIS_STATUS_PATH = Path(os.getenv("ANALYSIS_STATUS_PATH", "/data/config/analysis-status.json"))
 TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_ENDPOINT = os.getenv(
@@ -126,6 +127,24 @@ def write_document_state(filename: str, status: str, **details: object) -> None:
     DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
 
 
+def read_analysis_status() -> dict:
+    if not ANALYSIS_STATUS_PATH.exists():
+        return {"available": bool(GEMINI_API_KEY), "message": None, "retry_after": None}
+    try:
+        data = json.loads(ANALYSIS_STATUS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {"available": bool(GEMINI_API_KEY)}
+    except (OSError, json.JSONDecodeError):
+        return {"available": bool(GEMINI_API_KEY), "message": None, "retry_after": None}
+
+
+def write_analysis_status(available: bool, message: Optional[str] = None, retry_after: Optional[str] = None) -> None:
+    ANALYSIS_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ANALYSIS_STATUS_PATH.write_text(
+        json.dumps({"available": available, "message": message, "retry_after": retry_after}, indent=2),
+        encoding="utf-8",
+    )
+
+
 def analyze_text(text: str, filename: str) -> dict:
     normalized_text = text.casefold()
     scores = {
@@ -152,6 +171,7 @@ def analyze_text(text: str, filename: str) -> dict:
     return {
         "topic": topic,
         "category": topic,
+        "language": "unknown",
         "confidence": round(confidence, 2),
         "date": date,
         "party": party,
@@ -167,9 +187,11 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optiona
         return None
     prompt = (
         "Analyze this document text and return JSON only with these fields: "
-        "category (short noun), title (short title), date (YYYY-MM-DD or undated), "
+        "language (ISO 639-1 code), category (short noun in the document language), "
+        "title (short title in the document language), date (YYYY-MM-DD or undated), "
         "party (sender/vendor/person or null), summary (one sentence), "
-        "confidence (number from 0 to 1), suggested_filename (single safe .pdf filename).\n\n"
+        "confidence (number from 0 to 1), suggested_filename (single safe .pdf filename using words from the document language). "
+        "Do not translate the filename into English unless the document is in English.\n\n"
         f"Original filename: {filename}\nDocument text:\n{text[:12000]}"
     )
     parts = [{"text": prompt}]
@@ -188,6 +210,14 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optiona
                 headers={"x-goog-api-key": GEMINI_API_KEY},
                 json=payload,
             )
+            if response.status_code == 429:
+                retry_after = response.headers.get("retry-after")
+                write_analysis_status(
+                    False,
+                    "Gemini quota or rate limit reached. Local analysis is active until Gemini is available again.",
+                    retry_after,
+                )
+                return None
             response.raise_for_status()
             candidates = response.json().get("candidates", [])
             response_text = candidates[0]["content"]["parts"][0]["text"]
@@ -200,10 +230,12 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optiona
         if not _FILENAME_PATTERN.fullmatch(suggested_filename):
             suggested_filename = local_result["suggested_filename"]
         confidence = float(result.get("confidence", local_result["confidence"]))
+        write_analysis_status(True)
         return {
             **local_result,
             "topic": category,
             "category": category,
+            "language": str(result.get("language") or local_result["language"])[:10],
             "title": str(result.get("title") or local_result["title"])[:120],
             "date": str(result.get("date") or local_result["date"])[:20],
             "party": result.get("party") or local_result["party"],
@@ -213,6 +245,10 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optiona
             "analysis_source": "gemini",
         }
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+        write_analysis_status(
+            False,
+            "Gemini is temporarily unavailable. Local analysis is active.",
+        )
         return None
 
 
@@ -243,10 +279,14 @@ def ingestion_status() -> dict:
 @app.get("/api/analysis/status")
 def analysis_status() -> dict:
     """Report the configured analysis provider without exposing credentials."""
+    current = read_analysis_status()
     return {
         "gemini_configured": bool(GEMINI_API_KEY),
         "endpoint": GEMINI_ENDPOINT,
         "fallback": "local",
+        "available": current.get("available", bool(GEMINI_API_KEY)),
+        "message": current.get("message"),
+        "retry_after": current.get("retry_after"),
     }
 
 

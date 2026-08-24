@@ -253,6 +253,8 @@ Gemini is optional. Without `GEMINI_API_KEY`, the application uses the local cla
 8. Place a completed PDF in `/data/source`, select it in the web interface, and inspect the analysis result.
 9. Confirm the result contains `analysis_source: "gemini"` in the API response or that the review summary reflects the Gemini result.
 
+Gemini also detects the document language and uses that language for category words and the suggested filename where possible. For example, a German invoice may receive a filename containing `Rechnung` rather than `Invoice`. The suggested name remains editable before finalization.
+
 **Interface verification:** Open the application and select a PDF from the document inbox. The review panel displays an analysis-provider badge:
 - `Analysis provider: Gemini configured` means the running container received a Gemini key.
 - `Analysis provider: Gemini` means Gemini returned the analysis for the selected document.
@@ -273,6 +275,8 @@ If configuration reports `true` but analysis falls back to local, check the mode
 **Endpoint override:** Keep the default endpoint unless using a compatible proxy or model deployment. `GEMINI_ENDPOINT` must be the complete `generateContent` URL. The API key is sent in the `x-goog-api-key` header and is never sent to the browser.
 
 **Failure behavior:** If Gemini times out, returns an error, or returns invalid JSON, the classifier records no secret data and falls back to local analysis. Check backend logs for the failure and confirm the local result has `analysis_source: "local"`.
+
+When the Gemini plan or rate limit is exhausted, the review interface displays `Gemini temporarily unavailable; local fallback active`. The warning is safe to show because it contains no key or document content. After the quota window ends, select a document again; a successful request changes the badge to `Analysis provider: Gemini` and clears the warning. The status endpoint also exposes `available`, `message`, and `retry_after` without returning credentials.
 
 **Key rotation:** Create a replacement key in Google AI Studio, update the server-side secret, restart the backend, verify one document, and revoke the old key.
 

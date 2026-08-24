@@ -198,13 +198,15 @@ Docker & Docker Compose
 - `GET /api/documents/{filename}` - Inspect one completed PDF from the n8n input directory
 - `GET /api/documents/{filename}/file` - Serve one source PDF for browser review
 - `POST /api/documents/{filename}/prepare` - Copy and inspect a PDF in processing storage
-- `POST /api/documents/{filename}/analyze` - Extract text, detect a first-pass topic, and suggest a filename
+- `POST /api/documents/{filename}/analyze` - Extract content, detect language/topic, and suggest a filename in the document language
 - `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee with an optional output filename
 - `GET /api/documents/history` - Return persisted document lifecycle history
 
 **Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration. Finalization writes the classified copy, optionally using a reviewed `.pdf` filename, moves the original with its source name out of `/data/source` into `/data/archive/` so it no longer appears in the n8n inbox, and removes the temporary processing workspace.
 
 **Analysis provider visibility:** The review UI displays whether Gemini is configured and which provider actually returned the current analysis. The API exposes only a boolean configuration flag and the provider name; credentials are never returned. Analysis never selects a destinee. The user must explicitly choose any configured destinee during review, allowing correction of a mistaken route.
+
+**Gemini availability:** A `429` quota/rate-limit response or another Gemini request failure is recorded in the mounted analysis-status file. The UI then warns that Gemini is temporarily unavailable and local fallback is active. A later valid Gemini response marks the provider available again and clears the warning.
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails
 - `DELETE /api/document/{doc_id}` - Remove document from processing queue
 

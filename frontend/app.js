@@ -89,6 +89,7 @@ async function inspectDocument(filename) {
     const preparedDocument = await response.json();
     selectedDocument = { filename, processingId: preparedDocument.processing_id };
     reviewPanel.hidden = false;
+    document.querySelector(".workflow-layout").classList.add("review-active");
     reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
     reviewStatus.textContent = `${preparedDocument.original_name} · ${preparedDocument.status.replace("_", " ")}`;
     reviewFilename.value = preparedDocument.original_name;
@@ -118,7 +119,8 @@ async function inspectDocument(filename) {
     if (!analysisResponse.ok) throw new Error("Content analysis failed");
     const analysis = await analysisResponse.json();
     const party = analysis.party ? ` · ${analysis.party}` : "";
-    analysisSummary.textContent = `${analysis.category} · ${analysis.date}${party} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}`;
+    const language = analysis.language && analysis.language !== "unknown" ? ` · ${analysis.language}` : "";
+    analysisSummary.textContent = `${analysis.category} · ${analysis.date}${language}${party} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}`;
     analysisProvider.textContent = analysis.analysis_source === "gemini" ? "Analysis provider: Gemini" : "Analysis provider: Local fallback";
     analysisProvider.className = `analysis-provider ${analysis.analysis_source === "gemini" ? "provider-gemini" : "provider-local"}`;
     reviewFilename.value = analysis.suggested_filename;
@@ -191,8 +193,17 @@ async function loadAnalysisProvider() {
     const response = await fetch(`${API_BASE_URL}/api/analysis/status`);
     if (!response.ok) throw new Error("Provider status failed");
     const status = await response.json();
-    analysisProvider.textContent = status.gemini_configured ? "Analysis provider: Gemini configured" : "Analysis provider: Local fallback";
-    analysisProvider.className = `analysis-provider ${status.gemini_configured ? "provider-gemini" : "provider-local"}`;
+    if (status.gemini_configured && status.available) {
+      analysisProvider.textContent = "Analysis provider: Gemini available";
+      analysisProvider.className = "analysis-provider provider-gemini";
+    } else if (status.gemini_configured && status.message) {
+      analysisProvider.textContent = "Analysis provider: Gemini temporarily unavailable; local fallback active";
+      analysisProvider.className = "analysis-provider provider-warning";
+    } else {
+      analysisProvider.textContent = "Analysis provider: Local fallback";
+      analysisProvider.className = "analysis-provider provider-local";
+    }
+    if (status.message) analysisProvider.title = status.message;
   } catch {
     analysisProvider.textContent = "Analysis provider status unavailable";
     analysisProvider.className = "analysis-provider";

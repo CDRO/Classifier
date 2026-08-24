@@ -84,6 +84,7 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .analysis-provider { display: inline-block; margin: 0 0 18px; padding: 7px 10px; border: 1px solid var(--line); color: var(--muted); font: 700 11px Arial, sans-serif; letter-spacing: .4px; }
 .provider-gemini { border-color: #e2bd83; background: #fff6e8; color: #9a5b14; }
 .provider-local { border-color: #c7dfcf; background: var(--mint); color: var(--green); }
+.provider-warning { border-color: #e6b08a; background: #fff0e6; color: #9b4d20; }
 .page-text { max-height: 380px; margin-top: 22px; overflow: auto; }
 .page-text-block { padding: 12px 0; border-top: 1px solid var(--line); }
 .page-text-block strong { font: 700 11px Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; }
