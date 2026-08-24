@@ -2,7 +2,8 @@ FROM python:3.12-alpine
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir fastapi uvicorn
+RUN apk add --no-cache libstdc++ \
+	&& pip install --no-cache-dir fastapi uvicorn pymupdf
 RUN mkdir -p /data/source /data/destination /data/config
 
 COPY frontend/ ./frontend/

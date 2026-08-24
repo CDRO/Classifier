@@ -6,6 +6,7 @@ $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) $container
 $sourcePath = Join-Path $testRoot "source"
 $destinationPath = Join-Path $testRoot "destination"
 $configPath = Join-Path $testRoot "config"
+$tempPath = Join-Path $testRoot "temp"
 $portProbe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
 
 function Assert-Equal {
@@ -20,7 +21,7 @@ function Assert-Equal {
 }
 
 try {
-    New-Item -ItemType Directory -Path $sourcePath, $destinationPath, $configPath | Out-Null
+    New-Item -ItemType Directory -Path $sourcePath, $destinationPath, $configPath, $tempPath | Out-Null
     Set-Content -Path (Join-Path $sourcePath "handoff.pdf") -Value "%PDF-1.4"
     Set-Content -Path (Join-Path $sourcePath "handoff.tmp") -Value "incomplete"
 
@@ -37,6 +38,7 @@ try {
         -v "${sourcePath}:/data/source" `
         -v "${destinationPath}:/data/destination" `
         -v "${configPath}:/data/config" `
+        -v "${tempPath}:/data/temp" `
         $image | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Docker container failed to start."
@@ -61,6 +63,11 @@ try {
     Assert-Equal $configResponse.output_root "/data/destination/" "Output path mismatch"
     Assert-Equal $configResponse.destinees.Count 3 "Default destinee count mismatch"
 
+    docker exec $container python -c "import pymupdf; pdf=pymupdf.open(); pdf.new_page(); pdf.save('/data/source/handoff.pdf')"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not create valid PDF fixture in the test container."
+    }
+
     $payload = @{ destinees = @("Destinee A", "Destinee B", "Destinee C", "Shared") } | ConvertTo-Json
     $updated = Invoke-RestMethod -Uri "$baseUrl/api/classification/config" -Method Post `
         -ContentType "application/json" -Body $payload
@@ -72,7 +79,16 @@ try {
 
     $document = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get
     Assert-Equal $document.name "handoff.pdf" "Document metadata name mismatch"
-    Assert-Equal $document.size 10 "Document metadata size mismatch"
+    if ($document.size -le 0) {
+        throw "Document metadata did not report a positive file size."
+    }
+
+    $prepared = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/prepare" -Method Post
+    Assert-Equal $prepared.original_name "handoff.pdf" "Prepared filename mismatch"
+    Assert-Equal $prepared.page_count 1 "Prepared page count mismatch"
+    if (-not (Test-Path (Join-Path $tempPath "processing\$($prepared.processing_id)\original.pdf"))) {
+        throw "Prepared PDF was not written to processing storage."
+    }
 
     try {
         Invoke-RestMethod -Uri "$baseUrl/api/documents/..%2Fincomplete.pdf" -Method Get | Out-Null

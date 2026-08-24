@@ -3,9 +3,12 @@
 import json
 import os
 import re
+import shutil
+import uuid
 from pathlib import Path
 from typing import List
 
+import pymupdf as fitz
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +18,7 @@ DEFAULT_DESTINEES = ["Destinee A", "Destinee B", "Destinee C"]
 SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
 DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))
 CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json"))
+TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
 
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
 
@@ -135,6 +139,38 @@ def get_document(filename: str) -> dict:
         "path": str(document_path),
         "size": metadata.st_size,
         "modified": metadata.st_mtime,
+    }
+
+
+@app.post("/api/documents/{filename}/prepare")
+def prepare_document(filename: str) -> dict:
+    """Copy a source PDF into processing storage and return page metadata."""
+    document_path = (SOURCE_PATH / filename).resolve()
+    source_root = SOURCE_PATH.resolve()
+    if document_path.parent != source_root or not document_path.is_file() or document_path.suffix.casefold() != ".pdf":
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    processing_id = uuid.uuid4().hex
+    processing_directory = TEMP_PATH / "processing" / processing_id
+    processing_path = processing_directory / "original.pdf"
+    try:
+        processing_directory.mkdir(parents=True, exist_ok=False)
+        shutil.copy2(document_path, processing_path)
+        with fitz.open(processing_path) as pdf:
+            pages = [
+                {"page": page_number + 1, "text": page.get_text()[:2000]}
+                for page_number, page in enumerate(pdf)
+            ]
+    except (OSError, fitz.FileDataError) as exc:
+        shutil.rmtree(processing_directory, ignore_errors=True)
+        raise HTTPException(status_code=422, detail="Unable to prepare PDF for processing") from exc
+
+    return {
+        "processing_id": processing_id,
+        "original_name": document_path.name,
+        "processing_path": str(processing_path),
+        "page_count": len(pages),
+        "pages": pages,
     }
 
 
