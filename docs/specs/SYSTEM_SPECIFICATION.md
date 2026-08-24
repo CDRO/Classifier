@@ -197,6 +197,7 @@ Docker & Docker Compose
 - `GET /api/documents/{filename}/file` - Serve one source PDF for browser review
 - `POST /api/documents/{filename}/prepare` - Copy and inspect a PDF in processing storage
 - `POST /api/documents/{filename}/finalize` - Copy a prepared PDF to a configured destinee
+- `GET /api/documents/history` - Return persisted document lifecycle history
 
 **Document lifecycle:** `received` when n8n hands off a PDF, `in_review` after preparation, `classified` after finalization, and `failed` when preparation cannot be completed. Lifecycle state is persisted with the mounted application configuration.
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails

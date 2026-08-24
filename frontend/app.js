@@ -15,6 +15,8 @@ const documentPreview = document.querySelector("#document-preview");
 const pageSummary = document.querySelector("#page-summary");
 const reviewDestinee = document.querySelector("#review-destinee");
 const pageText = document.querySelector("#page-text");
+const historyList = document.querySelector("#history-list");
+const historyStatus = document.querySelector("#history-status");
 const finalizeButton = document.querySelector("#finalize-document");
 const finalizeStatus = document.querySelector("#finalize-status");
 let selectedDocument = null;
@@ -144,9 +146,31 @@ async function refreshInbox() {
     if (!response.ok) throw new Error("Scan failed");
     const result = await response.json();
     renderInbox(result.files);
+    refreshHistory();
   } catch {
     inboxList.replaceChildren();
     inboxStatus.textContent = "The n8n input directory is not reachable yet.";
+  }
+}
+
+async function refreshHistory() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/history`);
+    if (!response.ok) throw new Error("History request failed");
+    const result = await response.json();
+    historyList.replaceChildren();
+    historyStatus.textContent = result.count
+      ? `${result.count} document${result.count === 1 ? "" : "s"} tracked.`
+      : "No documents tracked yet.";
+    result.documents.forEach((entry) => {
+      const item = document.createElement("div");
+      item.className = "history-item";
+      item.innerHTML = `<div><strong>${escapeHtml(entry.name)}</strong><small>${escapeHtml((entry.status || "received").replace("_", " "))}${entry.destinee ? ` · ${escapeHtml(entry.destinee)}` : ""}</small></div><span class="file-state">${escapeHtml((entry.status || "received").replace("_", " ").toUpperCase())}</span>`;
+      historyList.append(item);
+    });
+  } catch {
+    historyList.replaceChildren();
+    historyStatus.textContent = "Processing history is not reachable yet.";
   }
 }
 
@@ -158,6 +182,7 @@ document.querySelector("#add-destinee").addEventListener("click", () => {
 });
 
 document.querySelector("#refresh-inbox").addEventListener("click", refreshInbox);
+document.querySelector("#refresh-history").addEventListener("click", refreshHistory);
 
 document.querySelector("#destinee-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -204,6 +229,7 @@ async function initialize() {
 
 initialize();
 refreshInbox();
+refreshHistory();
 
 document.querySelector("[data-source-path]").textContent = SOURCE_PATH;
 document.querySelector("[data-destination-path]").textContent = `${DESTINATION_PATH}/`;

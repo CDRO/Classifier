@@ -201,6 +201,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Prepare selected PDFs and display review metadata in the native UI
 - [x] Finalize a reviewed PDF into its configured destinee folder
 - [x] Persist document lifecycle states from receipt through classification
+- [x] Display processing history across container restarts
 - [ ] Implement Google Drive API integration (replace TODO placeholders)
 - [ ] Run full test suite with real Google Drive API
 - [ ] Security audit for credential handling

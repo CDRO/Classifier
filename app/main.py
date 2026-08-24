@@ -141,6 +141,11 @@ def scan_input_directory() -> dict:
     if not SOURCE_PATH.exists() or not SOURCE_PATH.is_dir():
         raise HTTPException(status_code=503, detail="n8n input directory is unavailable")
     states = read_document_states()
+    for path in SOURCE_PATH.iterdir():
+        if path.is_file() and path.suffix.casefold() == ".pdf" and not path.name.startswith("."):
+            states.setdefault(path.name, {"status": "received"})
+    DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
     files = sorted(
         {
             "name": path.name,
@@ -152,6 +157,19 @@ def scan_input_directory() -> dict:
         if path.is_file() and path.suffix.casefold() == ".pdf" and not path.name.startswith(".")
     )
     return {"files": files, "count": len(files)}
+
+
+@app.get("/api/documents/history")
+def document_history() -> dict:
+    """Return known documents and their persisted lifecycle states."""
+    states = read_document_states()
+    documents = [
+        {"name": filename, **details}
+        for filename, details in states.items()
+        if isinstance(details, dict)
+    ]
+    documents.sort(key=lambda document: document["name"].casefold())
+    return {"documents": documents, "count": len(documents)}
 
 
 @app.get("/api/documents/{filename}")

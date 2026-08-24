@@ -90,6 +90,18 @@
       </div>
     </section>
 
+    <section class="history-panel" aria-labelledby="history-title">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">PROCESSING HISTORY</p>
+          <h2 id="history-title">Recent documents</h2>
+        </div>
+        <button type="button" id="refresh-history" class="button button-secondary">Refresh <span aria-hidden="true">&#8635;</span></button>
+      </div>
+      <p id="history-status" class="inbox-status" aria-live="polite">Loading history...</p>
+      <div id="history-list" class="history-list"></div>
+    </section>
+
     <section class="folder-preview" aria-labelledby="preview-title">
       <div class="preview-heading">
         <div>

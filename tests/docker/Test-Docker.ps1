@@ -78,6 +78,10 @@ try {
     Assert-Equal $scan.files[0].name "handoff.pdf" "Scanned filename mismatch"
     Assert-Equal $scan.files[0].status "received" "Initial document status mismatch"
 
+    $history = Invoke-RestMethod -Uri "$baseUrl/api/documents/history" -Method Get
+    Assert-Equal $history.count 1 "History count mismatch"
+    Assert-Equal $history.documents[0].status "received" "History status mismatch"
+
     $document = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get
     Assert-Equal $document.name "handoff.pdf" "Document metadata name mismatch"
     if ($document.size -le 0) {
