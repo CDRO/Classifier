@@ -59,3 +59,24 @@ def test_scan_returns_completed_pdfs_only(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.json()["count"] == 1
     assert response.json()["files"][0]["name"] == "invoice.pdf"
+
+
+def test_get_document_returns_metadata(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    document.write_bytes(b"pdf")
+
+    response = TestClient(main.app).get("/api/documents/invoice.pdf")
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "invoice.pdf"
+    assert response.json()["size"] == 3
+
+
+def test_get_document_rejects_path_traversal(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (tmp_path / "outside.pdf").write_bytes(b"pdf")
+
+    response = TestClient(main.app).get("/api/documents/..%2Foutside.pdf")
+
+    assert response.status_code == 404
