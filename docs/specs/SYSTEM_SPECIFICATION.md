@@ -215,6 +215,7 @@ Docker & Docker Compose
 **Analysis provider visibility:** The review UI displays whether Gemini is configured and which provider actually returned the current analysis. The API exposes only a boolean configuration flag and the provider name; credentials are never returned. Analysis never selects a destinee. The user must explicitly choose any configured destinee during review, allowing correction of a mistaken route.
 
 **Local OCR:** OCR is activated per page only when native PDF text is empty. The default languages are English and German (`OCR_LANGUAGES=eng+deu`), and the review UI marks OCR-processed pages.
+OCR input uses grayscale rendering at `OCR_RENDER_SCALE` (default `2`) and Tesseract automatic page segmentation. OCR remains limited to pages that need it.
 
 **Split workflow:** Selected boundaries create numbered parts in the processing workspace. Users assign an independent filename and destinee to each part. Multi-output finalization writes all outputs, archives the source once, and removes the processing workspace only after every output succeeds.
 

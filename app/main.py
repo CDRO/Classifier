@@ -38,6 +38,7 @@ GEMINI_ENDPOINT = os.getenv(
 )
 GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "20"))
 OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+deu")
+OCR_RENDER_SCALE = float(os.getenv("OCR_RENDER_SCALE", "2"))
 
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
 _FILENAME_PATTERN = re.compile(r"^[^/\\\x00]+\.pdf$", re.IGNORECASE)
@@ -211,10 +212,14 @@ def extract_page_text(page: object) -> tuple[str, bool]:
     text = page.get_text()
     if text.strip():
         return text, False
-    image = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False).tobytes("png")
+    image = page.get_pixmap(
+        matrix=fitz.Matrix(OCR_RENDER_SCALE, OCR_RENDER_SCALE),
+        colorspace=fitz.csGRAY,
+        alpha=False,
+    ).tobytes("png")
     try:
         result = subprocess.run(
-            ["tesseract", "stdin", "stdout", "-l", OCR_LANGUAGES, "--psm", "6"],
+            ["tesseract", "stdin", "stdout", "-l", OCR_LANGUAGES, "--psm", "3", "--dpi", "300"],
             input=image,
             capture_output=True,
             check=False,

@@ -204,6 +204,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Prepare selected PDFs and display review metadata in the native UI
 - [x] Analyze PDF text locally and suggest a descriptive output filename
 - [x] Use Tesseract OCR for image-only pages
+- [x] Improve OCR input with grayscale rendering and automatic page segmentation
 - [x] Detect basic document language and expose local classification signals
 - [x] Detect duplicate PDF redelivery with SHA-256 content identity
 - [x] Dismiss inbox PDFs into a separate archive without processing
@@ -286,6 +287,7 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 The frontend is intentionally native HTML, CSS, and browser JavaScript. It has no Node.js, npm, or third-party runtime dependency. Any future third-party browser library must be checked in as compiled JavaScript after review.
 
 OCR defaults to English and German. Override the server setting with `OCR_LANGUAGES` (for example `eng+deu`) when adding compatible Tesseract language data to the image.
+OCR pages are rendered in grayscale at a configurable scale (`OCR_RENDER_SCALE`, default `2`) and passed through Tesseract's automatic page segmentation.
 
 ### Medium-term (Tier 3: Additional Backends)
 - [ ] SharePoint backend implementation

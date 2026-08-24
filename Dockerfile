@@ -18,6 +18,7 @@ ARG APP_VERSION=0.1.0
 ARG APP_REVISION=unknown
 ENV APP_VERSION=$APP_VERSION
 ENV APP_REVISION=$APP_REVISION
+ENV OCR_RENDER_SCALE=2
 LABEL org.opencontainers.image.version=$APP_VERSION \
 	org.opencontainers.image.revision=$APP_REVISION
 

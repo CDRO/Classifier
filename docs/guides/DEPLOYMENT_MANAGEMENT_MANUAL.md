@@ -220,6 +220,7 @@ API_WORKERS=4
 **Important:** The application uses `/data/source` and `/data/destination` by default. Host-specific folders are mapped later in `docker-compose.yml`; destinee names are configured in the web interface.
 
 OCR is included in the container for scanned PDFs. Pages with no native text are rendered and sent to local Tesseract using English and German by default. The review screen marks pages where OCR was used. Configure additional language data and set `OCR_LANGUAGES` in the server environment only when those packages are installed in the image.
+OCR images are rendered in grayscale with a default scale of `2` and automatic page segmentation. Increase `OCR_RENDER_SCALE` only after measuring the processing-time and memory impact on the NAS.
 
 The running container version is shown in the application footer. It is also available without exposing secrets:
 
