@@ -61,6 +61,8 @@ h2 { margin-bottom: 10px; font-size: 28px; font-weight: 400; letter-spacing: 0; 
 .inbox-item strong, .inbox-item small { display: block; }
 .inbox-item strong { font-size: 16px; font-weight: 400; overflow-wrap: anywhere; }
 .inbox-item small { margin-top: 5px; color: var(--muted); font: 11px Arial, sans-serif; }
+.inbox-document { padding: 0; border: 0; background: transparent; color: var(--ink); text-align: left; }
+.inbox-document:hover strong { color: var(--green); }
 .file-state { flex: 0 0 auto; color: var(--green); font: 700 10px Arial, sans-serif; letter-spacing: 1px; }
 .panel-actions { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 12px; }
 .button { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; border: 1px solid transparent; border-radius: 2px; font: 700 13px Arial, sans-serif; }

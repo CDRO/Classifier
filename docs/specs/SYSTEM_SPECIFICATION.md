@@ -193,6 +193,7 @@ Docker & Docker Compose
 **File Management:**
 - `POST /api/upload` - Upload PDF document
 - `GET /api/document/{doc_id}` - Retrieve document metadata
+- `GET /api/documents/{filename}` - Inspect one completed PDF from the n8n input directory
 - `GET /api/document/{doc_id}/pages` - Fetch paginated page thumbnails
 - `DELETE /api/document/{doc_id}` - Remove document from processing queue
 

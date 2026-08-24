@@ -70,6 +70,19 @@ try {
     Assert-Equal $scan.count 1 "Completed PDF scan count mismatch"
     Assert-Equal $scan.files[0].name "handoff.pdf" "Scanned filename mismatch"
 
+    $document = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf" -Method Get
+    Assert-Equal $document.name "handoff.pdf" "Document metadata name mismatch"
+    Assert-Equal $document.size 10 "Document metadata size mismatch"
+
+    try {
+        Invoke-RestMethod -Uri "$baseUrl/api/documents/..%2Fincomplete.pdf" -Method Get | Out-Null
+        throw "Path traversal request was accepted."
+    } catch {
+        if ($_.Exception.Response.StatusCode.value__ -ne 404) {
+            throw "Path traversal returned an unexpected status."
+        }
+    }
+
     if (-not (Test-Path (Join-Path $destinationPath "Shared"))) {
         throw "Mounted destination did not receive the new destinee folder."
     }

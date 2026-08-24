@@ -117,4 +117,25 @@ def scan_input_directory() -> dict:
     return {"files": files, "count": len(files)}
 
 
+@app.get("/api/documents/{filename}")
+def get_document(filename: str) -> dict:
+    """Return metadata for one completed PDF in the n8n input directory."""
+    document_path = (SOURCE_PATH / filename).resolve()
+    source_root = SOURCE_PATH.resolve()
+    if document_path.parent != source_root:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not document_path.is_file() or document_path.suffix.casefold() != ".pdf":
+        raise HTTPException(status_code=404, detail="Document not found")
+    try:
+        metadata = document_path.stat()
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Document not found") from exc
+    return {
+        "name": document_path.name,
+        "path": str(document_path),
+        "size": metadata.st_size,
+        "modified": metadata.st_mtime,
+    }
+
+
 app.mount("/", StaticFiles(directory="/app/frontend", html=True), name="frontend")

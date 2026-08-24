@@ -60,9 +60,22 @@ function renderInbox(files) {
   files.forEach((file) => {
     const item = document.createElement("div");
     item.className = "inbox-item";
-    item.innerHTML = `<div><strong>${escapeHtml(file.name)}</strong><small>${formatBytes(file.size)} · ready in n8n input</small></div><span class="file-state">READY</span>`;
+    item.innerHTML = `<button class="inbox-document" type="button"><strong>${escapeHtml(file.name)}</strong><small>${formatBytes(file.size)} · ready in n8n input</small></button><span class="file-state">READY</span>`;
+    item.querySelector(".inbox-document").addEventListener("click", () => inspectDocument(file.name));
     inboxList.append(item);
   });
+}
+
+async function inspectDocument(filename) {
+  inboxStatus.textContent = `Loading ${filename}...`;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(filename)}`);
+    if (!response.ok) throw new Error("Document lookup failed");
+    const document = await response.json();
+    inboxStatus.textContent = `${document.name} is ready for inspection (${formatBytes(document.size)}).`;
+  } catch {
+    inboxStatus.textContent = "The document could not be loaded from the n8n input directory.";
+  }
 }
 
 function formatBytes(bytes) {
