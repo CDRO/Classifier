@@ -153,7 +153,11 @@ async function inspectDocument(filename) {
     const party = analysis.party ? ` · ${analysis.party}` : "";
     const language = analysis.language && analysis.language !== "unknown" ? ` · ${analysis.language}` : "";
     const signals = analysis.signals?.length ? ` Signals: ${analysis.signals.join("; ")}.` : "";
-    analysisSummary.textContent = `${analysis.category} · ${analysis.date}${language}${party} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}${signals}`;
+    const entities = [
+      analysis.amounts?.length ? `Amounts: ${analysis.amounts.join(", ")}` : "",
+      analysis.reference_numbers?.length ? `References: ${analysis.reference_numbers.join(", ")}` : ""
+    ].filter(Boolean).join(" · ");
+    analysisSummary.textContent = `${analysis.category} · ${analysis.date}${language}${party} (${Math.round(analysis.confidence * 100)}% confidence): ${analysis.summary}${entities ? ` ${entities}.` : ""}${signals}`;
     analysisProvider.textContent = analysis.analysis_source === "gemini" ? "Analysis provider: Gemini" : "Analysis provider: Local fallback";
     analysisProvider.className = `analysis-provider ${analysis.analysis_source === "gemini" ? "provider-gemini" : "provider-local"}`;
     await loadAnalysisProvider();
