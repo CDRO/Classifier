@@ -7,6 +7,7 @@ import shutil
 import uuid
 from pathlib import Path
 from typing import List
+from urllib.parse import quote
 
 import pymupdf as fitz
 from fastapi import FastAPI, HTTPException
@@ -149,7 +150,13 @@ def serve_document(filename: str):
     document_path = (SOURCE_PATH / filename).resolve()
     if document_path.parent != SOURCE_PATH.resolve() or not document_path.is_file() or document_path.suffix.casefold() != ".pdf":
         raise HTTPException(status_code=404, detail="Document not found")
-    return FileResponse(document_path, media_type="application/pdf", filename=document_path.name)
+    return FileResponse(
+        document_path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(document_path.name)}"
+        },
+    )
 
 
 @app.post("/api/documents/{filename}/prepare")
