@@ -74,7 +74,7 @@ try {
     Assert-Equal $version.version "0.0.0-test" "Container version mismatch"
     Assert-Equal $version.revision "integration-test" "Container revision mismatch"
 
-    docker exec $container python -c "import pymupdf; pdf=pymupdf.open(); [pdf.new_page().insert_text((72,72), 'Invoice Amount Due VAT') for _ in range(3)]; pdf.save('/data/source/handoff.pdf')"
+    docker exec $container python -c "import pymupdf; pdf=pymupdf.open(); [pdf.new_page().insert_text((72,72), 'Invoice Amount Due VAT Invoice 2026-08-24 EUR 120.50 Reference ABC-123') for _ in range(3)]; pdf.save('/data/source/handoff.pdf')"
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create valid PDF fixture in the test container."
     }
@@ -144,10 +144,13 @@ try {
     if (-not $analysis.signals -or $analysis.signals.Count -lt 1) {
         throw "Local analysis signals were not returned."
     }
+    if (-not $analysis.amounts -or -not $analysis.reference_numbers) {
+        throw "Local entity extraction fields were not returned."
+    }
     if (-not $analysis.title -or -not $analysis.summary) {
         throw "Rich content analysis fields were not returned."
     }
-    if ($analysis.suggested_filename -notmatch '^undated_Invoice_handoff\.pdf$') {
+    if ($analysis.suggested_filename -notmatch '^2026-08-24_Invoice_handoff\.pdf$') {
         throw "Unexpected suggested filename: $($analysis.suggested_filename)"
     }
     if (-not (Test-Path (Join-Path $tempPath "processing\$($prepared.processing_id)\original.pdf"))) {

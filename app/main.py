@@ -43,6 +43,8 @@ OCR_RENDER_SCALE = float(os.getenv("OCR_RENDER_SCALE", "2"))
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
 _FILENAME_PATTERN = re.compile(r"^[^/\\\x00]+\.pdf$", re.IGNORECASE)
 _DATE_PATTERN = re.compile(r"(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2}")
+_AMOUNT_PATTERN = re.compile(r"(?:€|EUR|USD|GBP|CHF)\s?\d+[\d.,]*|\d+[\d.,]*\s?(?:€|EUR|USD|GBP|CHF)", re.IGNORECASE)
+_REFERENCE_PATTERN = re.compile(r"(?:invoice|rechnung|reference|referenz|policy|police|customer|kunden)[\s#:.-]*([A-Z0-9][A-Z0-9./-]{2,})", re.IGNORECASE)
 _TOPIC_KEYWORDS: Dict[str, List[str]] = {
     "Invoice": ["invoice", "rechnung", "amount due", "vat", "mwst"],
     "Receipt": ["receipt", "quittung", "kassenbon", "total"],
@@ -249,8 +251,10 @@ def analyze_text(text: str, filename: str) -> dict:
     signals = [f"Matched topic keywords for {topic}: {score}"] if score else ["No local topic keywords matched"]
     if language != "unknown":
         signals.append(f"Detected language: {language}")
-    date_match = _DATE_PATTERN.search(text)
-    date = date_match.group(0).replace("/", "-").replace(".", "-") if date_match else "undated"
+    dates = [match.replace("/", "-").replace(".", "-") for match in _DATE_PATTERN.findall(text)]
+    date = dates[0] if dates else "undated"
+    amounts = _AMOUNT_PATTERN.findall(text)
+    references = _REFERENCE_PATTERN.findall(text)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     title = lines[0][:120] if lines else Path(filename).stem
     party_match = re.search(
@@ -269,6 +273,9 @@ def analyze_text(text: str, filename: str) -> dict:
         "language": language,
         "confidence": round(confidence, 2),
         "date": date,
+        "dates": dates[:10],
+        "amounts": amounts[:10],
+        "reference_numbers": references[:10],
         "party": party,
         "title": title,
         "summary": summary,
@@ -338,6 +345,9 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None) -> Optiona
             "language": str(result.get("language") or local_result["language"])[:10],
             "title": str(result.get("title") or local_result["title"])[:120],
             "date": str(result.get("date") or local_result["date"])[:20],
+            "dates": result.get("dates") or local_result["dates"],
+            "amounts": result.get("amounts") or local_result["amounts"],
+            "reference_numbers": result.get("reference_numbers") or local_result["reference_numbers"],
             "party": result.get("party") or local_result["party"],
             "summary": str(result.get("summary") or local_result["summary"])[:240],
             "confidence": round(max(0.0, min(1.0, confidence)), 2),

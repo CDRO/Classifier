@@ -217,6 +217,8 @@ Docker & Docker Compose
 **Local OCR:** OCR is activated per page only when native PDF text is empty. The default languages are English and German (`OCR_LANGUAGES=eng+deu`), and the review UI marks OCR-processed pages.
 OCR input uses grayscale rendering at `OCR_RENDER_SCALE` (default `2`) and Tesseract automatic page segmentation. OCR remains limited to pages that need it.
 
+**Local entities:** The fallback extracts up to ten document dates, monetary amounts, and labeled reference numbers from native or OCR text. These fields are advisory signals and remain editable or overridable during review.
+
 **Split workflow:** Selected boundaries create numbered parts in the processing workspace. Users assign an independent filename and destinee to each part. Multi-output finalization writes all outputs, archives the source once, and removes the processing workspace only after every output succeeds.
 
 **Gemini availability:** A `429` quota/rate-limit response or another Gemini request failure is recorded in the mounted analysis-status file. The UI then warns that Gemini is temporarily unavailable and local fallback is active. A later valid Gemini response marks the provider available again and clears the warning.
