@@ -57,6 +57,18 @@
       </form>
     </section>
 
+    <section class="inbox-panel" aria-labelledby="inbox-title">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">N8N HANDOFF</p>
+          <h2 id="inbox-title">Document inbox</h2>
+        </div>
+        <button type="button" id="refresh-inbox" class="button button-secondary">Refresh <span aria-hidden="true">&#8635;</span></button>
+      </div>
+      <p id="inbox-status" class="inbox-status" aria-live="polite">Checking for completed PDFs...</p>
+      <div id="inbox-list" class="inbox-list"></div>
+    </section>
+
     <section class="folder-preview" aria-labelledby="preview-title">
       <div class="preview-heading">
         <div>

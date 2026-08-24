@@ -2,11 +2,12 @@ FROM python:3.12-alpine
 
 WORKDIR /app
 
+RUN pip install --no-cache-dir fastapi uvicorn
+RUN mkdir -p /data/source /data/destination /data/config
+
 COPY frontend/ ./frontend/
 COPY app/ ./app/
 
-RUN mkdir -p /data/source /data/destination /data/config
-RUN pip install --no-cache-dir fastapi uvicorn
 
 EXPOSE 3000
 

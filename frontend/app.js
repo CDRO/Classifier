@@ -7,6 +7,8 @@ const list = document.querySelector("#destinee-list");
 const folderList = document.querySelector("#folder-list");
 const count = document.querySelector("#count");
 const error = document.querySelector("#form-error");
+const inboxList = document.querySelector("#inbox-list");
+const inboxStatus = document.querySelector("#inbox-status");
 
 function loadDestinees() {
   try {
@@ -50,12 +52,46 @@ function escapeHtml(value) {
   return value.replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[character]));
 }
 
+function renderInbox(files) {
+  inboxList.replaceChildren();
+  inboxStatus.textContent = files.length
+    ? `${files.length} completed PDF${files.length === 1 ? "" : "s"} waiting for classification.`
+    : "No completed PDFs are waiting for classification.";
+  files.forEach((file) => {
+    const item = document.createElement("div");
+    item.className = "inbox-item";
+    item.innerHTML = `<div><strong>${escapeHtml(file.name)}</strong><small>${formatBytes(file.size)} · ready in n8n input</small></div><span class="file-state">READY</span>`;
+    inboxList.append(item);
+  });
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function refreshInbox() {
+  inboxStatus.textContent = "Checking for completed PDFs...";
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/classification/scan`, { method: "POST" });
+    if (!response.ok) throw new Error("Scan failed");
+    const result = await response.json();
+    renderInbox(result.files);
+  } catch {
+    inboxList.replaceChildren();
+    inboxStatus.textContent = "The n8n input directory is not reachable yet.";
+  }
+}
+
 document.querySelector("#add-destinee").addEventListener("click", () => {
   const next = readRows();
   next.push("");
   render(next);
   list.lastElementChild.querySelector("input").focus();
 });
+
+document.querySelector("#refresh-inbox").addEventListener("click", refreshInbox);
 
 document.querySelector("#destinee-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -101,6 +137,7 @@ async function initialize() {
 }
 
 initialize();
+refreshInbox();
 
 document.querySelector("[data-source-path]").textContent = SOURCE_PATH;
 document.querySelector("[data-destination-path]").textContent = `${DESTINATION_PATH}/`;
