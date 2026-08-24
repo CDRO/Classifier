@@ -74,7 +74,7 @@ try {
     Assert-Equal $version.version "0.0.0-test" "Container version mismatch"
     Assert-Equal $version.revision "integration-test" "Container revision mismatch"
 
-    docker exec $container python -c "import pymupdf; pdf=pymupdf.open(); page=pdf.new_page(); page.insert_text((72,72), 'Invoice Amount Due VAT'); pdf.save('/data/source/handoff.pdf')"
+    docker exec $container python -c "import pymupdf; pdf=pymupdf.open(); [pdf.new_page().insert_text((72,72), 'Invoice Amount Due VAT') for _ in range(3)]; pdf.save('/data/source/handoff.pdf')"
     if ($LASTEXITCODE -ne 0) {
         throw "Could not create valid PDF fixture in the test container."
     }
@@ -120,9 +120,15 @@ try {
 
     $prepared = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/prepare" -Method Post
     Assert-Equal $prepared.original_name "handoff.pdf" "Prepared filename mismatch"
-    Assert-Equal $prepared.page_count 1 "Prepared page count mismatch"
+    Assert-Equal $prepared.page_count 3 "Prepared page count mismatch"
     Assert-Equal $prepared.status "in_review" "Prepared document status mismatch"
     Assert-Equal $prepared.ocr_used $false "Unexpected OCR usage for text PDF"
+    $split = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/split" -Method Post `
+        -ContentType "application/json" -Body (@{ processing_id = $prepared.processing_id; split_pages = @(2) } | ConvertTo-Json)
+    Assert-Equal $split.part_count 2 "Split part count mismatch"
+    if (-not (Test-Path (Join-Path $tempPath "processing\$($prepared.processing_id)\handoff_part_01.pdf"))) {
+        throw "First split output was not created."
+    }
     $rotated = Invoke-RestMethod -Uri "$baseUrl/api/documents/handoff.pdf/rotate" -Method Post `
         -ContentType "application/json" -Body (@{ processing_id = $prepared.processing_id; page = 1; rotation = 90 } | ConvertTo-Json)
     Assert-Equal $rotated.rotation 90 "Page rotation mismatch"

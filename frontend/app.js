@@ -22,6 +22,9 @@ const historyList = document.querySelector("#history-list");
 const historyStatus = document.querySelector("#history-status");
 const finalizeButton = document.querySelector("#finalize-document");
 const finalizeStatus = document.querySelector("#finalize-status");
+const splitBoundaries = document.querySelector("#split-boundaries");
+const splitStatus = document.querySelector("#split-status");
+const applySplitButton = document.querySelector("#apply-split");
 const appVersion = document.querySelector("#app-version");
 const appRevision = document.querySelector("#app-revision");
 const globalAnalysisStatus = document.querySelector("#global-analysis-status");
@@ -151,6 +154,13 @@ async function inspectDocument(filename) {
     await loadAnalysisProvider();
     reviewFilename.value = analysis.suggested_filename;
     pageText.replaceChildren();
+    splitBoundaries.replaceChildren();
+    for (let page = 2; page <= preparedDocument.page_count; page += 1) {
+      const label = document.createElement("label");
+      label.className = "split-boundary";
+      label.innerHTML = `<input type="checkbox" value="${page}"> page ${page}`;
+      splitBoundaries.append(label);
+    }
     preparedDocument.pages.forEach((page) => {
       const block = document.createElement("article");
       block.className = "page-text-block";
@@ -169,6 +179,24 @@ async function inspectDocument(filename) {
     inboxStatus.textContent = "The document could not be loaded from the n8n input directory.";
   }
 }
+
+applySplitButton.addEventListener("click", async () => {
+  if (!selectedDocument) return;
+  const splitPages = [...splitBoundaries.querySelectorAll("input:checked")].map((input) => Number(input.value));
+  splitStatus.textContent = "Creating PDF parts...";
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${encodeURIComponent(selectedDocument.filename)}/split`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ processing_id: selectedDocument.processingId, split_pages: splitPages })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Split failed");
+    splitStatus.textContent = `${result.part_count} PDF part${result.part_count === 1 ? "" : "s"} prepared. The original remains unchanged.`;
+  } catch (splitError) {
+    splitStatus.textContent = splitError.message;
+  }
+});
 
 async function rotatePage(page, rotation) {
   if (!selectedDocument) return;

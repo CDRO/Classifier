@@ -115,6 +115,13 @@ class RotateRequest(BaseModel):
         return value
 
 
+class SplitRequest(BaseModel):
+    """Requested page boundaries for splitting one prepared PDF."""
+
+    processing_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-f0-9]+$")
+    split_pages: List[int] = Field(default_factory=list, max_length=100)
+
+
 app = FastAPI(title="Document Classifier API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -503,6 +510,33 @@ def rotate_document_page(filename: str, request: RotateRequest) -> dict:
     except (OSError, fitz.FileDataError) as exc:
         raise HTTPException(status_code=422, detail="Unable to rotate PDF page") from exc
     return {"processing_id": request.processing_id, "page": request.page, "rotation": request.rotation}
+
+
+@app.post("/api/documents/{filename}/split")
+def split_document(filename: str, request: SplitRequest) -> dict:
+    """Create numbered PDF parts from the prepared working copy."""
+    processing_path = prepared_file(request.processing_id)
+    try:
+        with fitz.open(processing_path) as source_pdf:
+            page_count = source_pdf.page_count
+            boundaries = sorted(set(request.split_pages))
+            if any(page < 2 or page > page_count for page in boundaries):
+                raise HTTPException(status_code=422, detail="Split boundary is outside the document")
+            starts = [1, *boundaries]
+            ends = [page - 1 for page in boundaries] + [page_count]
+            parts = []
+            for index, (start, end) in enumerate(zip(starts, ends), start=1):
+                output_pdf = fitz.open()
+                output_pdf.insert_pdf(source_pdf, from_page=start - 1, to_page=end - 1)
+                output_path = processing_path.parent / f"{Path(filename).stem}_part_{index:02d}.pdf"
+                output_pdf.save(output_path)
+                output_pdf.close()
+                parts.append({"part": index, "start_page": start, "end_page": end, "path": str(output_path)})
+    except HTTPException:
+        raise
+    except (OSError, fitz.FileDataError) as exc:
+        raise HTTPException(status_code=422, detail="Unable to split PDF") from exc
+    return {"processing_id": request.processing_id, "part_count": len(parts), "parts": parts}
 
 
 class DismissRequest(BaseModel):
