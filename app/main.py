@@ -22,21 +22,42 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 DEFAULT_DESTINEES: List[str] = []
 APP_VERSION = os.getenv("APP_VERSION", "2.0.0")
 APP_REVISION = os.getenv("APP_REVISION", "unknown")
-SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
-DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))
-ARCHIVE_PATH = Path(os.getenv("PROCESSED_ARCHIVE_PATH", "/data/archive"))
-DISMISSED_PATH = Path(os.getenv("DISMISSED_ARCHIVE_PATH", "/data/archive/dismissed"))
-CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json"))
-DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
-ANALYSIS_STATUS_PATH = Path(os.getenv("ANALYSIS_STATUS_PATH", "/data/config/analysis-status.json"))
-JOB_STATUS_PATH = Path(os.getenv("JOB_STATUS_PATH", "/data/config/jobs.json"))
-APPROVAL_AUDIT_PATH = Path(os.getenv("APPROVAL_AUDIT_PATH", "/data/config/approval-audit.json"))
-TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
+
+
+def canonicalize_runtime_path(value: object) -> str:
+    """Normalize container mount paths without altering real Windows local paths."""
+    text = str(value).strip()
+    normalized = text.replace("\\", "/")
+    if normalized.startswith("/data"):
+        return normalized
+    return text
+
+
+def is_container_data_path(value: object) -> bool:
+    return canonicalize_runtime_path(value).startswith("/data")
+
+
+def resolve_runtime_path(env_name: str, fallback: str) -> Path:
+    raw_value = os.getenv(env_name, fallback)
+    normalized = canonicalize_runtime_path(raw_value)
+    return Path(normalized)
+
+
+SOURCE_PATH = resolve_runtime_path("RAW_INPUT_PATH", "/data/source")
+DESTINATION_PATH = resolve_runtime_path("CLASSIFIED_OUTPUT_PATH", "/data/destination")
+ARCHIVE_PATH = resolve_runtime_path("PROCESSED_ARCHIVE_PATH", "/data/archive")
+DISMISSED_PATH = resolve_runtime_path("DISMISSED_ARCHIVE_PATH", "/data/archive/dismissed")
+CONFIG_PATH = resolve_runtime_path("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json")
+DOCUMENTS_PATH = resolve_runtime_path("DOCUMENTS_STATUS_PATH", "/data/config/documents.json")
+ANALYSIS_STATUS_PATH = resolve_runtime_path("ANALYSIS_STATUS_PATH", "/data/config/analysis-status.json")
+JOB_STATUS_PATH = resolve_runtime_path("JOB_STATUS_PATH", "/data/config/jobs.json")
+APPROVAL_AUDIT_PATH = resolve_runtime_path("APPROVAL_AUDIT_PATH", "/data/config/approval-audit.json")
+TEMP_PATH = resolve_runtime_path("TEMP_PATH", "/data/temp")
 FRONTEND_DIR = Path("/app/frontend") if Path("/app/frontend").exists() else Path(__file__).resolve().parent.parent / "frontend"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_ENDPOINT = os.getenv(
@@ -48,6 +69,7 @@ OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+deu")
 OCR_RENDER_SCALE = float(os.getenv("OCR_RENDER_SCALE", "2"))
 
 logger = logging.getLogger(__name__)
+
 
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
 _FILENAME_PATTERN = re.compile(r"^[^/\\\x00]+\.pdf$", re.IGNORECASE)
@@ -91,12 +113,14 @@ class ClassificationConfig(BaseModel):
     @field_validator("source_roots")
     @classmethod
     def validate_source_roots(cls, values: List[str]) -> List[str]:
-        cleaned = [value.strip() for value in values]
+        cleaned = [canonicalize_runtime_path(value).strip() for value in values]
         if any(not value for value in cleaned):
             raise ValueError("Source roots cannot be empty")
         if len({value.casefold() for value in cleaned}) != len(cleaned):
             raise ValueError("Source roots must be unique")
         for value in cleaned:
+            if is_container_data_path(value):
+                continue
             resolved = Path(value).expanduser()
             if not resolved.exists() or not resolved.is_dir():
                 raise ValueError(f"Source root does not exist or is not a directory: {value}")
@@ -108,13 +132,23 @@ class ClassificationConfig(BaseModel):
         normalized: Dict[str, str] = {}
         for destinee, path in values.items():
             cleaned_name = str(destinee).strip()
-            cleaned_path = str(path).strip()
-            if not cleaned_name or not cleaned_path:
-                raise ValueError("Destination route mappings must include both a destinee name and a folder path")
+            cleaned_path = canonicalize_runtime_path(path).strip()
+            if not cleaned_name:
+                raise ValueError("Destination route mappings must include a destinee name")
+            if not cleaned_path:
+                raise ValueError("Destination route mappings must include a folder path")
             if any(not _DESTINEE_PATTERN.fullmatch(cleaned_name) for _ in [cleaned_name]):
                 raise ValueError("Destination route names cannot contain path separators")
             normalized[cleaned_name] = cleaned_path
         return normalized
+
+    @model_validator(mode="after")
+    def validate_destination_roots_match_destinees(self):
+        configured_names = {value.casefold() for value in self.destinees}
+        for destinee in self.destination_roots:
+            if destinee.casefold() not in configured_names:
+                raise ValueError("Destination route names must match configured destinees")
+        return self
 
 
 class ClassificationResponse(ClassificationConfig):
@@ -154,6 +188,25 @@ class FinalizeRequest(BaseModel):
         if normalized not in {"reviewer", "approver", "admin"}:
             raise ValueError("Role must be reviewer, approver, or admin")
         return normalized
+
+
+class RouteRequest(BaseModel):
+    """Resolve a configured route before a document is exported."""
+
+    destinee: str = Field(min_length=1, max_length=80)
+    filename: Optional[str] = Field(default=None, max_length=180)
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Filename cannot be empty")
+        if not _FILENAME_PATTERN.fullmatch(cleaned):
+            raise ValueError("Output filename must be a single .pdf filename")
+        return cleaned
 
 
 class RotateRequest(BaseModel):
@@ -291,8 +344,13 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_methods=["GET", "POST"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -332,7 +390,13 @@ def read_source_roots() -> List[Path]:
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         config = ClassificationConfig.model_validate(data)
-        configured = [Path(value).expanduser() for value in config.source_roots]
+        configured = []
+        for value in config.source_roots:
+            normalized = canonicalize_runtime_path(value)
+            if is_container_data_path(normalized):
+                configured.append(Path(normalized))
+            else:
+                configured.append(Path(normalized).expanduser())
         if configured:
             return configured
     except (OSError, json.JSONDecodeError, ValueError):
@@ -936,31 +1000,61 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None, layout: Op
 
 
 def read_destination_roots() -> Dict[str, str]:
-    default_roots = {destinee: str(DESTINATION_PATH / destinee) for destinee in read_config()}
     if not CONFIG_PATH.exists():
-        return default_roots
+        return {}
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         config = ClassificationConfig.model_validate(data)
-        configured = config.destination_roots
-        if configured:
-            return configured
+        configured = {
+            destinee: canonicalize_runtime_path(path)
+            for destinee, path in config.destination_roots.items()
+            if destinee.casefold() in {value.casefold() for value in config.destinees}
+        }
+        return configured
     except (OSError, json.JSONDecodeError, ValueError):
-        pass
-    return default_roots
+        return {}
 
 
 def response_for(destinees: List[str]) -> ClassificationResponse:
     ensure_destinee_directories(destinees)
-    source_roots = [str(path) for path in read_source_roots()]
-    destination_roots = read_destination_roots()
+    source_roots = [canonicalize_runtime_path(str(path)) for path in read_source_roots()]
+    destination_roots = {destinee: canonicalize_runtime_path(path) for destinee, path in read_destination_roots().items()}
     return ClassificationResponse(
         destinees=destinees,
-        input_path=str(source_roots[0]) if source_roots else str(SOURCE_PATH),
-        output_root=f"{DESTINATION_PATH}/",
+        input_path=source_roots[0] if source_roots else canonicalize_runtime_path(str(SOURCE_PATH)),
+        output_root=f"{canonicalize_runtime_path(str(DESTINATION_PATH))}/",
         source_roots=source_roots,
         destination_roots=destination_roots,
     )
+
+
+def resolve_route_for_destinee(destinee: str, filename: Optional[str] = None) -> dict:
+    """Resolve the effective output root for a configured destinee and filename."""
+    configured_destinees = read_config()
+    matching_destinee = next(
+        (value for value in configured_destinees if value.casefold() == destinee.casefold()),
+        None,
+    )
+    if matching_destinee is None:
+        raise HTTPException(status_code=400, detail=f"Destinee '{destinee}' is not configured")
+
+    root = Path(read_destination_roots().get(matching_destinee, str(DESTINATION_PATH / matching_destinee))).expanduser()
+    root.mkdir(parents=True, exist_ok=True)
+
+    safe_name = "document.pdf"
+    if filename:
+        candidate = Path(filename.strip()).name
+        if candidate and candidate not in {".", ".."}:
+            safe_name = candidate
+
+    destination_path = (root / safe_name).resolve()
+    if str(destination_path).startswith(str(root.resolve())) or str(destination_path) == str(root.resolve()):
+        return {
+            "resolved_destinee": matching_destinee,
+            "root_path": str(root),
+            "destination_path": str(destination_path),
+        }
+    raise HTTPException(status_code=400, detail="The requested filename would escape the configured output root")
 
 
 def move_or_archive_document(document_path: Path) -> Path:
@@ -1050,6 +1144,12 @@ def update_classification_config(config: ClassificationConfig) -> Classification
     except OSError as exc:
         raise HTTPException(status_code=500, detail="Unable to persist classification configuration") from exc
     return response_for(config.destinees)
+
+
+@app.post("/api/classification/route")
+def route_document(request: RouteRequest) -> dict:
+    """Return the resolved path for the selected destinee before writing output files."""
+    return resolve_route_for_destinee(request.destinee, request.filename)
 
 
 @app.post("/api/documents/{filename:path}/private")
@@ -1681,6 +1781,18 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         matching_destinee = request.destinee.strip()
         ensure_destinee_directories([matching_destinee])
 
+    if configured_destinees:
+        route = resolve_route_for_destinee(matching_destinee, request.output_filename or Path(filename).name)
+    else:
+        root = (DESTINATION_PATH / matching_destinee).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+        output_name = request.output_filename or Path(filename).name
+        route = {
+            "resolved_destinee": matching_destinee,
+            "root_path": str(root),
+            "destination_path": str((root / output_name).resolve()),
+        }
+
     role = (request.role or "").strip().lower()
     actor = (request.actor or "").strip()
     if role and role not in {"reviewer", "approver", "admin"}:
@@ -1694,8 +1806,8 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         raise HTTPException(status_code=404, detail="Prepared document not found")
 
     relative_path = Path(filename)
-    destination_directory = DESTINATION_PATH / matching_destinee / relative_path.parent
     output_filename = request.output_filename or relative_path.name
+    destination_directory = Path(route["root_path"]) / relative_path.parent
     destination_file = destination_directory / output_filename
     archived_file = relative_archive_path(document_path)
     try:

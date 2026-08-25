@@ -25,6 +25,34 @@
 
 ## 1. Pre-Deployment Checklist
 
+### 1.0 Live configuration verification on a local port 3001 instance
+
+Before shipping any config or routing change, validate the UI against the running application on port 3001. This catches the stale-state bug where deleted destinees reappear after a save or a second add cycle.
+
+```bash
+# Run the app locally for config verification
+python -m uvicorn app.main:app --host 127.0.0.1 --port 3001
+```
+
+Then open:
+
+```text
+http://127.0.0.1:3001/config
+```
+
+Use this exact flow:
+
+1. Create four destinees and save.
+2. Delete one of them and save again.
+3. Reload the page and verify that the deleted entry remains absent.
+4. Add one of the removed names back, save, and verify there is exactly one instance.
+5. Delete multiple rows in different orders and confirm the final list is exactly the current state, not a historical merge.
+6. Leave at least one destinee without an explicit route and confirm it resolves to `/data/destination/<destinee>/` by default.
+
+This check prevents deleted config entries from returning from browser local storage or a stale configuration snapshot, and it is the required smoke test before a release candidate is considered stable.
+
+---
+
 Before deploying the Document Processing Pipeline to production, verify the following:
 
 ### 1.1 Infrastructure Requirements

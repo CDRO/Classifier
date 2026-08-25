@@ -98,6 +98,21 @@ function loadDestinees() {
   }
 }
 
+function buildDefaultDestinationRoutes(destinees, explicitRoutes = {}) {
+  const defaults = {};
+  for (const destinee of destinees) {
+    const cleaned = String(destinee || "").trim();
+    if (!cleaned) continue;
+    defaults[cleaned] = explicitRoutes[cleaned] || `${DESTINATION_PATH}/${cleaned}`;
+  }
+  for (const [name, path] of Object.entries(explicitRoutes || {})) {
+    if (name && !defaults[name]) {
+      defaults[name] = path;
+    }
+  }
+  return defaults;
+}
+
 function render(destinees) {
   list.replaceChildren();
   folderList.replaceChildren();
@@ -1336,10 +1351,12 @@ documentPreview.addEventListener("load", () => {
 
 document.querySelector("#destinee-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const destinees = readRows();
+  const destinees = readRows().filter(Boolean);
+  const sourceRoots = [SOURCE_PATH];
+  const destinationRoutes = buildDefaultDestinationRoutes(destinees, {});
   const normalized = destinees.map((value) => value.toLocaleLowerCase());
-  if (destinees.some((value) => !value)) {
-    error.textContent = "Every destinee needs a name.";
+  if (destinees.length === 0) {
+    error.textContent = "Add at least one destinee.";
     return;
   }
   if (new Set(normalized).size !== normalized.length) {
@@ -1350,7 +1367,7 @@ document.querySelector("#destinee-form").addEventListener("submit", async (event
     const response = await fetch(`${API_BASE_URL}/api/classification/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ destinees })
+      body: JSON.stringify({ destinees, source_roots: sourceRoots, destination_roots: destinationRoutes })
     });
     if (!response.ok) throw new Error("API request failed");
     localStorage.setItem(STORAGE_KEY, JSON.stringify(destinees));
@@ -1363,18 +1380,44 @@ document.querySelector("#destinee-form").addEventListener("submit", async (event
 });
 
 async function initialize() {
-  let destinees = loadDestinees();
+  let config = { destinees: loadDestinees(), source_roots: [SOURCE_PATH], destination_roots: {} };
   try {
     const response = await fetch(`${API_BASE_URL}/api/classification/config`);
     if (response.ok) {
-      const config = await response.json();
-      destinees = config.destinees;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(destinees));
+      config = await response.json();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(config.destinees || []));
     }
   } catch {
     // Static-only mode uses the local fallback until the API is running.
   }
-  render(destinees);
+
+  const effectiveDestinees = config.destinees || [];
+  const effectiveSourceRoots = config.source_roots && config.source_roots.length ? config.source_roots : [SOURCE_PATH];
+  const effectiveDestinationRoots = buildDefaultDestinationRoutes(effectiveDestinees, config.destination_roots || {});
+
+  render(effectiveDestinees);
+  if (reviewDestinee) {
+    reviewDestinee.replaceChildren();
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "Choose a destinee";
+    defaultOption.disabled = true;
+    defaultOption.selected = true;
+    reviewDestinee.append(defaultOption);
+    effectiveDestinees.forEach((destinee) => {
+      const option = document.createElement("option");
+      option.value = destinee;
+      option.textContent = destinee;
+      reviewDestinee.append(option);
+    });
+    if (effectiveSourceRoots.length) {
+      document.querySelector("[data-source-path]").textContent = effectiveSourceRoots[0];
+    }
+    if (Object.keys(effectiveDestinationRoots).length) {
+      document.querySelector("[data-destination-path]").textContent = `${DESTINATION_PATH}/`;
+      document.querySelector("[data-preview-root]").textContent = `${DESTINATION_PATH}/`;
+    }
+  }
 }
 
 initialize();

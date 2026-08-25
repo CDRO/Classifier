@@ -28,7 +28,19 @@
       </div>
 
       <form id="destinee-form" novalidate>
-        <div id="destinee-list" class="destinee-list"></div>
+        <div id="destinee-list" class="destinee-list" aria-label="Configured destinees"></div>
+        <div class="config-grid">
+          <div class="config-column">
+            <h3>Source roots</h3>
+            <div id="source-root-list" class="destinee-list"></div>
+            <button type="button" id="add-source-root" class="button button-secondary" style="margin-top: 0.75rem;"><span aria-hidden="true">+</span> Add source</button>
+          </div>
+          <div class="config-column">
+            <h3>Destination routes</h3>
+            <div id="destination-route-list" class="destinee-list"></div>
+            <button type="button" id="add-destination-route" class="button button-secondary" style="margin-top: 0.75rem;"><span aria-hidden="true">+</span> Add route</button>
+          </div>
+        </div>
         <div id="form-error" class="form-error" role="alert" aria-live="polite"></div>
         <div class="panel-actions">
           <button type="button" id="add-destinee" class="button button-secondary"><span aria-hidden="true">+</span> Add destinee</button>
