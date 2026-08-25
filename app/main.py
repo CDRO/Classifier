@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 DEFAULT_DESTINEES: List[str] = []
-APP_VERSION = os.getenv("APP_VERSION", "dev")
+APP_VERSION = os.getenv("APP_VERSION", "2.0.0")
 APP_REVISION = os.getenv("APP_REVISION", "unknown")
 SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
 DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))

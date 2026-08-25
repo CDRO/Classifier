@@ -595,6 +595,18 @@ class TestStorageBackendManager:
         with pytest.raises(ValueError, match="Unsupported storage backend"):
             manager._resolve_backend("unsupported_backend")
 
+    def test_manager_rejects_empty_or_invalid_registration(self):
+        manager = StorageBackendManager()
+
+        with pytest.raises(ValueError, match="non-empty string"):
+            manager.register_backend("", LocalNASBackend)
+
+        with pytest.raises(ValueError, match="non-empty string"):
+            manager.get_backend("   ")
+
+        with pytest.raises(TypeError, match="class object"):
+            manager.register_backend("dummy", object())
+
     @pytest.mark.asyncio
     async def test_webhook_export_client_posts_payload_and_falls_back_to_local(self, monkeypatch):
         client = WebhookExportClient(url="https://example.com/webhook")

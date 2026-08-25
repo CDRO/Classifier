@@ -6,10 +6,11 @@ This is the initial implementation of the document processing pipeline: **n8n in
 
 ## Development Status
 
+- ✅ **Release 2.0.0:** Storage backend support, private-retention cleanup, and dedicated configuration UI are complete
 - ✅ **Phase 1:** Documentation complete (SYSTEM_SPECIFICATION.md, WORKFLOW_TESTING_DEBUGGING.md, DEPLOYMENT_MANAGEMENT_MANUAL.md, AGENTS.md)
 - ✅ **Phase 2:** n8n ingestion boundary and local classified-output architecture defined
 - ✅ **Phase 3:** GitHub workflow mandate + 10-cycle code review integrated
-- 🔄 **Tier 1 (In Progress):** Native web interface and local classification workflow
+- ✅ **Native web interface and local classification workflow:** completed for the current release
 
 ## Project Structure
 
@@ -349,6 +350,6 @@ See [AGENTS.md Preamble](AGENTS.md#preamble-the-caveman-manifesto) for full deta
 
 ---
 
-**Version:** 1.0.0-tier1  
+**Version:** 2.0.0  
 **Last Updated:** 2026-08-17  
 **Status:** Development in progress
