@@ -209,6 +209,25 @@ def test_prepare_reports_benchmark_metadata_for_each_processing_strategy(monkeyp
     assert blank["processing_profile"]["estimated_cost_usd"] == 0.0
 
 
+def test_prepare_async_returns_queued_job_and_persists_status(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/invoice.pdf/prepare?async=true")
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["status"] == "queued"
+    assert payload["job_id"]
+    job = TestClient(main.app).get(f"/api/jobs/{payload['job_id']}").json()
+    assert job["filename"] == "invoice.pdf"
+    assert job["status"] in {"queued", "processing", "ready", "failed"}
+
+
 def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path):
     main, source, destination = load_api(monkeypatch, tmp_path)
     document = source / "invoice.pdf"

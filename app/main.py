@@ -8,13 +8,14 @@ import re
 import shutil
 import subprocess
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
 import httpx
 import pymupdf as fitz
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +31,7 @@ DISMISSED_PATH = Path(os.getenv("DISMISSED_ARCHIVE_PATH", "/data/archive/dismiss
 CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json"))
 DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
 ANALYSIS_STATUS_PATH = Path(os.getenv("ANALYSIS_STATUS_PATH", "/data/config/analysis-status.json"))
+JOB_STATUS_PATH = Path(os.getenv("JOB_STATUS_PATH", "/data/config/jobs.json"))
 TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
 FRONTEND_DIR = Path("/app/frontend") if Path("/app/frontend").exists() else Path(__file__).resolve().parent.parent / "frontend"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -304,6 +306,44 @@ def write_analysis_status(available: bool, message: Optional[str] = None, retry_
         json.dumps({"available": available, "message": message, "retry_after": retry_after}, indent=2),
         encoding="utf-8",
     )
+
+
+def read_job_store() -> dict:
+    if not JOB_STATUS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(JOB_STATUS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def write_job_record(job_id: str, status: str, **details: object) -> None:
+    jobs = read_job_store()
+    job = jobs.get(job_id)
+    updated = {} if not isinstance(job, dict) else dict(job)
+    updated.update({"job_id": job_id, "status": status, **details})
+    jobs[job_id] = updated
+    JOB_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    JOB_STATUS_PATH.write_text(json.dumps(jobs, indent=2), encoding="utf-8")
+
+
+def create_job_record(filename: str, processing_id: str, route_details: dict, page_count: int) -> str:
+    job_id = uuid.uuid4().hex
+    job_timestamp = datetime.now(timezone.utc).isoformat()
+    write_job_record(
+        job_id,
+        "queued",
+        filename=filename,
+        processing_id=processing_id,
+        route=route_details.get("route"),
+        queue_status=route_details.get("queue_status"),
+        processing_strategy=route_details.get("processing_strategy"),
+        page_count=page_count,
+        created_at=job_timestamp,
+        updated_at=job_timestamp,
+    )
+    return job_id
 
 
 def extract_page_text(page: object) -> tuple[str, bool]:
@@ -997,8 +1037,18 @@ def dismiss_document(filename: str, request: DismissRequest) -> dict:
     }
 
 
+@app.get("/api/jobs/{job_id}")
+def get_job_status(job_id: str) -> dict:
+    """Read the persisted status for a queued or processed preparation job."""
+    jobs = read_job_store()
+    job = jobs.get(job_id)
+    if not isinstance(job, dict):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
 @app.post("/api/documents/{filename:path}/prepare")
-def prepare_document(filename: str) -> dict:
+def prepare_document(filename: str, async_mode: bool = Query(False, alias="async")) -> dict:
     """Copy a source PDF into processing storage and return page metadata."""
     try:
         document_path = resolve_source_document(filename)
@@ -1043,7 +1093,7 @@ def prepare_document(filename: str) -> dict:
         raise HTTPException(status_code=422, detail="Unable to prepare PDF for processing") from exc
 
     relative_source_path = document_path.relative_to(SOURCE_PATH)
-    return {
+    response = {
         "processing_id": processing_id,
         "original_name": document_path.name,
         "source_path": relative_source_path.as_posix(),
@@ -1062,6 +1112,17 @@ def prepare_document(filename: str) -> dict:
         "processing_profile": route_details["processing_profile"],
         "status": "in_review",
     }
+
+    if async_mode:
+        job_id = create_job_record(filename, processing_id, route_details, page_count)
+        async_payload = {**response, "job_id": job_id, "processing_id": processing_id, "status": "queued"}
+        return Response(
+            content=json.dumps(async_payload),
+            media_type="application/json",
+            status_code=202,
+        )
+
+    return response
 
 
 @app.post("/api/documents/{filename:path}/analyze")
