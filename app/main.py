@@ -96,6 +96,10 @@ class ClassificationConfig(BaseModel):
             raise ValueError("Source roots cannot be empty")
         if len({value.casefold() for value in cleaned}) != len(cleaned):
             raise ValueError("Source roots must be unique")
+        for value in cleaned:
+            resolved = Path(value).expanduser()
+            if not resolved.exists() or not resolved.is_dir():
+                raise ValueError(f"Source root does not exist or is not a directory: {value}")
         return cleaned
 
     @field_validator("destination_roots")
