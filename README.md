@@ -46,11 +46,14 @@ This is the initial implementation of the document processing pipeline: **n8n in
 ### 1. Install Dependencies
 
 ```bash
+# Install core dependencies
+pip install -e .
+
+# Install the optional Google Drive backend support
+pip install -e ".[google-drive]"
+
 # Install development dependencies
 pip install -e ".[dev]"
-
-# Or just install core dependencies
-pip install -e .
 ```
 
 ### 2. Run the Native Frontend in Docker
