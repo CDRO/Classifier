@@ -18,6 +18,7 @@ Running tests:
   pytest tests/unit/test_storage_backends.py -v --cov=src/storage --cov-report=html
 """
 
+import logging
 import pytest
 from pathlib import Path
 from io import BytesIO
@@ -28,7 +29,7 @@ from datetime import datetime
 
 # Import backends
 from src.storage import StorageBackend, StorageBackendManager, WebhookExportClient
-from src.storage.google_drive import GoogleDriveBackend
+from src.storage.google_drive import GoogleDriveBackend, _redact_sensitive_content
 from src.storage.local_nas import LocalNASBackend
 
 
@@ -100,6 +101,35 @@ def valid_nas_credentials(temp_nas_path):
 
 class TestGoogleDriveBackend:
     """Test Google Drive backend implementation."""
+
+    def test_redact_sensitive_content_masks_private_key_material_in_strings(self):
+        """✓ Secret-bearing strings are scrubbed before they reach log output."""
+        payload = (
+            'private_key="-----BEGIN PRIVATE KEY-----\\nSECRET_VALUE\\n-----END PRIVATE KEY-----"; '
+            'api_key="abc-123"; token=xyz-token'
+        )
+
+        result = _redact_sensitive_content(payload)
+
+        assert "SECRET_VALUE" not in result
+        assert "abc-123" not in result
+        assert "xyz-token" not in result
+        assert "[REDACTED]" in result
+
+    def test_redact_sensitive_content_masks_private_key_material_in_dicts(self):
+        """✓ Secret-bearing dictionaries are scrubbed recursively."""
+        payload = {
+            "private_key": "-----BEGIN PRIVATE KEY-----\nSECRET_VALUE\n-----END PRIVATE KEY-----",
+            "nested": {"client_secret": "super-secret", "safe": "keep"},
+            "items": ["ok", {"token": "abc"}],
+        }
+
+        result = _redact_sensitive_content(payload)
+
+        assert result["private_key"] == "[REDACTED]"
+        assert result["nested"]["client_secret"] == "[REDACTED]"
+        assert result["items"][1]["token"] == "[REDACTED]"
+        assert result["nested"]["safe"] == "keep"
     
     @pytest.mark.asyncio
     async def test_authenticate_with_valid_credentials(
@@ -152,6 +182,26 @@ class TestGoogleDriveBackend:
 
         with pytest.raises(ValueError, match="private_key"):
             await google_drive_backend.authenticate(invalid_creds)
+
+    @pytest.mark.asyncio
+    async def test_authenticate_redacts_private_key_material_from_logs(
+        self,
+        google_drive_backend,
+        valid_google_drive_credentials,
+        caplog,
+    ):
+        """✓ Credential details are redacted in logged errors instead of leaking into application logs."""
+        secret = "-----BEGIN PRIVATE KEY-----\nREAL_SECRET_VALUE\n-----END PRIVATE KEY-----"
+
+        with patch("src.storage.google_drive._build_service", side_effect=ValueError(f"bad key: {secret}")):
+            with caplog.at_level(logging.ERROR):
+                with pytest.raises(ValueError, match="bad key"):
+                    await google_drive_backend.authenticate(valid_google_drive_credentials)
+
+        log_output = caplog.text
+        assert "REAL_SECRET_VALUE" not in log_output
+        assert "PRIVATE KEY" not in log_output
+        assert "[REDACTED" in log_output
     
     @pytest.mark.asyncio
     async def test_list_folders_before_auth_fails(self, google_drive_backend):

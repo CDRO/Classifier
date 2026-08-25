@@ -24,6 +24,7 @@ Cost:
 
 import json
 import logging
+import re
 from typing import BinaryIO, Dict, List, Optional
 from datetime import datetime
 from io import BytesIO
@@ -31,6 +32,41 @@ from io import BytesIO
 from src.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
+
+_REDACTION_TOKEN = "[REDACTED]"
+
+
+def _redact_sensitive_content(value: object) -> object:
+    """Strip private key material and other secrets from log payloads before they leave the process."""
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if any(marker in lowered for marker in ("private_key", "secret", "token", "password", "key")):
+                sanitized[key] = _REDACTION_TOKEN
+            else:
+                sanitized[key] = _redact_sensitive_content(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_redact_sensitive_content(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_sensitive_content(item) for item in value)
+    if not isinstance(value, str):
+        return value
+
+    redacted = value
+    redacted = re.sub(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        _REDACTION_TOKEN,
+        redacted,
+        flags=re.DOTALL,
+    )
+    redacted = re.sub(
+        r"(?i)((?:private[_ -]?key|api[_ -]?key|client_secret|secret|token|password)[\"']?\s*[:=]\s*[\"']?)([^\s\"',;]+)",
+        r"\1[REDACTED]",
+        redacted,
+    )
+    return redacted
 
 
 def _validate_service_account_config(service_account_config: Dict[str, str]) -> None:
@@ -142,9 +178,11 @@ class GoogleDriveBackend(StorageBackend):
             return True
 
         except Exception as e:
+            sanitized_error = _redact_sensitive_content(str(e))
             logger.error(
-                "Google Drive authentication failed",
-                extra={"error": str(e), "credentials_type": credentials.get("type")}
+                "Google Drive authentication failed: %s",
+                sanitized_error,
+                extra={"error": sanitized_error, "credentials_type": credentials.get("type")}
             )
             raise
     

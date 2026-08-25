@@ -256,11 +256,15 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
 - [x] Rename the classified output while preserving the original archive filename
 - [x] Persist document lifecycle states from receipt through classification
 - [x] Display processing history across container restarts
-- [ ] Implement Google Drive API integration (replace TODO placeholders)
+- [x] Implement Google Drive API integration (replace TODO placeholders)
 - [ ] Run full test suite with real Google Drive API
-- [ ] Security audit for credential handling
+- [x] Security audit for credential handling
 - [ ] Performance testing (upload/download speed, API rate limits)
 - [ ] Documentation for developers adding new backends
+
+### Credential handling guarantee
+
+The project treats Google Drive service-account keys and other secrets as sensitive data. Any validation failure or backend error logs now pass through a sanitization step so raw private-key blocks, API keys, and tokens are replaced with `[REDACTED]` before they reach application logs or traces. This keeps misconfiguration failures visible without exposing the secret material itself.
 
 ### Next (Tier 1.5: Local Fallback and Document Handling)
 
