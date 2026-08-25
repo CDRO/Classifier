@@ -210,10 +210,16 @@ class StorageBackendManager:
 
     @classmethod
     def register_backend(cls, name: str, backend_cls: Type[StorageBackend]) -> None:
-        cls._registry[name.lower()] = backend_cls
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Storage backend name must be a non-empty string")
+        if not isinstance(backend_cls, type):
+            raise TypeError("Storage backend class must be a class object")
+        cls._registry[name.strip().lower()] = backend_cls
 
     def get_backend(self, name: str) -> StorageBackend:
-        normalized = name.lower()
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Storage backend name must be a non-empty string")
+        normalized = name.strip().lower()
         if normalized not in self._registry:
             self.register_backend(normalized, self._resolve_backend(normalized))
         return self._registry[normalized]()
