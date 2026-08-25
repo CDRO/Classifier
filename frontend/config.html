@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Classifier | Destinee configuration</title>
+  <link rel="stylesheet" href="styles.css?v=__APP_VERSION__">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">DOCUMENT CLASSIFIER</p>
+        <h1>Classification settings</h1>
+      </div>
+      <div class="topbar-actions">
+        <a href="/" class="button button-secondary">Open work interface</a>
+      </div>
+    </header>
+
+    <section class="workspace-panel" aria-labelledby="destinee-title">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">ROUTING LIST</p>
+          <h2 id="destinee-title">Destinees</h2>
+        </div>
+        <span id="count" class="count">0 configured</span>
+      </div>
+
+      <form id="destinee-form" novalidate>
+        <div id="destinee-list" class="destinee-list"></div>
+        <div id="form-error" class="form-error" role="alert" aria-live="polite"></div>
+        <div class="panel-actions">
+          <button type="button" id="add-destinee" class="button button-secondary"><span aria-hidden="true">+</span> Add destinee</button>
+          <button type="submit" class="button button-primary">Save configuration <span aria-hidden="true">&#8594;</span></button>
+        </div>
+      </form>
+    </section>
+
+    <section class="folder-preview" aria-labelledby="preview-title">
+      <div class="preview-heading">
+        <div>
+          <p class="eyebrow">OUTPUT PREVIEW</p>
+          <h2 id="preview-title">Folder mapping</h2>
+        </div>
+        <span class="preview-root" data-preview-root>/data/destination/</span>
+      </div>
+      <div id="folder-list" class="folder-list"></div>
+    </section>
+  </main>
+  <script src="config.js?v=__APP_VERSION__"></script>
+</body>
+</html>

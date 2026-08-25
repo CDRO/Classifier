@@ -1,6 +1,8 @@
 """Focused tests for the n8n handoff and destinee configuration API."""
 
 import importlib
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -57,6 +59,56 @@ def test_update_config_rejects_path_separator(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 422
+
+
+def test_configuration_interface_is_separate_from_work_interface(monkeypatch, tmp_path):
+    load_api(monkeypatch, tmp_path)
+    config_html = Path("frontend/config.html")
+    index_html = Path("frontend/index.html")
+
+    assert config_html.exists()
+    assert "destinee-form" in config_html.read_text(encoding="utf-8")
+    assert "app.js" not in config_html.read_text(encoding="utf-8")
+    assert "config.js" in index_html.read_text(encoding="utf-8")
+
+
+def test_mark_document_private_schedules_cleanup_and_removes_logs(monkeypatch, tmp_path):
+    main, source, destination = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+    (source / "invoice.pdf").write_bytes(b"prepared pdf")
+
+    response = client.post(
+        "/api/documents/invoice.pdf/private",
+        json={"private": True, "delete_after_minutes": 60},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "private"
+    assert main.read_document_states()["invoice.pdf"]["private"] is True
+
+    destination_dir = destination / "Finance"
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination_file = destination_dir / "invoice.pdf"
+    destination_file.write_bytes(b"prepared pdf")
+
+    main.write_document_state(
+        "invoice.pdf",
+        "private",
+        private=True,
+        source_path=str(source / "invoice.pdf"),
+        destination_path=str(destination_file),
+        delete_after=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+    )
+    main.APPROVAL_AUDIT_PATH.write_text('{"entries":[{"filename":"invoice.pdf","action":"finalize"}]}', encoding="utf-8")
+    main.JOB_STATUS_PATH.write_text('{"job-1": {"filename": "invoice.pdf", "status": "queued"}}', encoding="utf-8")
+
+    removed = main.cleanup_private_documents(datetime.now(timezone.utc))
+
+    assert "invoice.pdf" in removed
+    assert not (source / "invoice.pdf").exists()
+    assert not destination_file.exists()
+    assert main.read_approval_audit()["entries"] == []
+    assert "job-1" not in main.read_job_store()
 
 
 def test_scan_returns_completed_pdfs_only(monkeypatch, tmp_path):

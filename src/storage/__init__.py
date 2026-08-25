@@ -17,8 +17,10 @@ code changes) and Agility (easy to adapt to new backends).
 """
 
 from abc import ABC, abstractmethod
-from typing import BinaryIO, List, Dict, Optional
+from typing import BinaryIO, List, Dict, Optional, Type, Any
 from datetime import datetime
+
+import httpx
 
 
 class StorageBackend(ABC):
@@ -184,4 +186,60 @@ class StorageBackend(ABC):
         pass
 
 
-__all__ = ["StorageBackend"]
+class StorageBackendManager:
+    """Simple registry for pluggable storage providers and local fallback."""
+
+    _registry: Dict[str, Type[StorageBackend]] = {}
+
+    def __init__(self) -> None:
+        self.register_backend("local_nas", self._resolve_backend("local_nas"))
+        self.register_backend("google_drive", self._resolve_backend("google_drive"))
+
+    @staticmethod
+    def _resolve_backend(name: str) -> Type[StorageBackend]:
+        normalized = name.lower()
+        if normalized == "local_nas":
+            from src.storage.local_nas import LocalNASBackend
+
+            return LocalNASBackend
+        if normalized == "google_drive":
+            from src.storage.google_drive import GoogleDriveBackend
+
+            return GoogleDriveBackend
+        raise ValueError(f"Unsupported storage backend: {name}")
+
+    @classmethod
+    def register_backend(cls, name: str, backend_cls: Type[StorageBackend]) -> None:
+        cls._registry[name.lower()] = backend_cls
+
+    def get_backend(self, name: str) -> StorageBackend:
+        normalized = name.lower()
+        if normalized not in self._registry:
+            self.register_backend(normalized, self._resolve_backend(normalized))
+        return self._registry[normalized]()
+
+
+class WebhookExportClient:
+    """Send structured payloads to downstream automation systems."""
+
+    def __init__(self, url: str, timeout: float = 5.0, headers: Optional[Dict[str, str]] = None) -> None:
+        self.url = url
+        self.timeout = timeout
+        self.headers = headers or {"Content-Type": "application/json"}
+
+    async def send(self, payload: Dict[str, Any], timeout: Optional[float] = None) -> bool:
+        if not self.url:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
+                response = await client.post(self.url, json=payload, headers=self.headers)
+                if hasattr(response, "raise_for_status"):
+                    response.raise_for_status()
+                elif getattr(response, "status_code", 200) >= 400:
+                    return False
+            return True
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+            return False
+
+
+__all__ = ["StorageBackend", "StorageBackendManager", "WebhookExportClient"]

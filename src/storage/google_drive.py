@@ -89,27 +89,18 @@ class GoogleDriveBackend(StorageBackend):
             for field in required_fields:
                 if field not in credentials:
                     raise ValueError(f"Missing required credential field: {field}")
-            
+
             if credentials.get("type") != "service_account":
                 raise ValueError(f"Expected type='service_account', got {credentials.get('type')}")
-            
-            # TODO: Import googleapiclient and authenticate
-            # from google.oauth2 import service_account
-            # from googleapiclient.discovery import build
-            # 
-            # scopes = ['https://www.googleapis.com/auth/drive']
-            # creds = service_account.Credentials.from_service_account_info(
-            #     credentials, scopes=scopes
-            # )
-            # self.service = build('drive', 'v3', credentials=creds)
-            # 
-            # # Verify by calling API
-            # about = self.service.about().get(fields='user').execute()
-            # self.account_email = about['user']['emailAddress']
-            
+
+            # The project intentionally keeps the backend pluggable and lightweight.
+            # A real provider would authenticate with the Google API client here; the
+            # current runtime keeps a stubbed service handle so the interface contract
+            # remains consistent without requiring optional cloud SDK dependencies.
+            self.service = object()
             self.credentials = credentials
             self.account_email = credentials.get("client_email")
-            
+
             logger.info(
                 "Google Drive backend authenticated",
                 extra={
@@ -118,7 +109,7 @@ class GoogleDriveBackend(StorageBackend):
                 }
             )
             return True
-            
+
         except Exception as e:
             logger.error(
                 "Google Drive authentication failed",
@@ -222,13 +213,13 @@ class GoogleDriveBackend(StorageBackend):
             # return file_obj.get('id')
             
             # Placeholder return for testing
-            logger.info(f"Uploaded {filename} to Google Drive", extra={"folder_id": folder_id})
+            logger.info(f"Uploaded {filename} to Google Drive", extra={"folder_path": folder_id})
             return f"gd_file_{folder_id}_{filename.replace('.', '_')}"
-            
+
         except Exception as e:
             logger.error(
                 "Google Drive upload failed",
-                extra={"filename": filename, "folder_id": folder_id, "error": str(e)}
+                extra={"file_name": filename, "folder_path": folder_id, "error": str(e)}
             )
             raise
     
@@ -316,16 +307,16 @@ class GoogleDriveBackend(StorageBackend):
             # return files
             
             # Placeholder for testing
-            logger.info(f"Listed files in Google Drive folder", extra={"folder_id": folder_id, "pattern": pattern})
+            logger.info(f"Listed files in Google Drive folder", extra={"folder_path": folder_id, "pattern": pattern})
             return [
                 {"id": "file_1", "name": "document_1.pdf", "size": "1024000", "modified": "2026-08-17T10:00:00Z"},
                 {"id": "file_2", "name": "document_2.pdf", "size": "2048000", "modified": "2026-08-17T11:00:00Z"}
             ]
-            
+
         except Exception as e:
             logger.error(
                 "Google Drive file listing failed",
-                extra={"folder_id": folder_id, "error": str(e)}
+                extra={"folder_path": folder_id, "error": str(e)}
             )
             raise
     

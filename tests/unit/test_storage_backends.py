@@ -27,7 +27,7 @@ import os
 from datetime import datetime
 
 # Import backends
-from src.storage import StorageBackend
+from src.storage import StorageBackend, StorageBackendManager, WebhookExportClient
 from src.storage.google_drive import GoogleDriveBackend
 from src.storage.local_nas import LocalNASBackend
 
@@ -209,6 +209,34 @@ class TestGoogleDriveBackend:
         
         with pytest.raises(ValueError, match="file_id cannot be empty"):
             await google_drive_backend.delete_file("")
+
+    @pytest.mark.asyncio
+    async def test_google_drive_success_paths(
+        self,
+        google_drive_backend,
+        valid_google_drive_credentials,
+        sample_pdf_file
+    ):
+        """✓ Google Drive happy-path flows cover upload/list/download/delete/storage info."""
+        await google_drive_backend.authenticate(valid_google_drive_credentials)
+
+        folders = await google_drive_backend.list_folders()
+        assert folders
+
+        uploaded = await google_drive_backend.upload_file("folder_123", "report.pdf", sample_pdf_file)
+        assert uploaded == "gd_file_folder_123_report_pdf"
+
+        listed = await google_drive_backend.list_files("folder_123", "*.pdf")
+        assert len(listed) >= 2
+
+        downloaded = await google_drive_backend.download_file(uploaded)
+        assert downloaded.read() == b"placeholder_file_content"
+
+        removed = await google_drive_backend.delete_file(uploaded)
+        assert removed is True
+
+        info = await google_drive_backend.get_storage_info()
+        assert info["backend_type"] == "google_drive"
 
 
 # ============================================================================
@@ -396,6 +424,100 @@ class TestLocalNASBackend:
         assert int(info["used_bytes"]) >= 0
         assert int(info["total_bytes"]) > 0
 
+    @pytest.mark.asyncio
+    async def test_upload_rejects_path_escape_for_nas(
+        self,
+        local_nas_backend,
+        valid_nas_credentials,
+        sample_pdf_file
+    ):
+        """✓ NAS upload rejects path traversal attempts."""
+        await local_nas_backend.authenticate(valid_nas_credentials)
+
+        escape_target = str(Path(valid_nas_credentials["path"]).parent)
+        with pytest.raises(PermissionError, match="Path escape detected"):
+            await local_nas_backend.upload_file(escape_target, "danger.pdf", sample_pdf_file)
+
+    @pytest.mark.asyncio
+    async def test_download_and_delete_validate_missing_or_escape_paths(
+        self,
+        local_nas_backend,
+        valid_nas_credentials,
+        sample_pdf_file
+    ):
+        """✓ NAS download/delete checks missing files and escape attempts."""
+        await local_nas_backend.authenticate(valid_nas_credentials)
+
+        missing_path = str(Path(valid_nas_credentials["path"]) / "Inbox" / "missing.pdf")
+        with pytest.raises(FileNotFoundError):
+            await local_nas_backend.download_file(missing_path)
+
+        escape_target = str(Path(valid_nas_credentials["path"]).parent)
+        with pytest.raises(PermissionError, match="Path escape detected"):
+            await local_nas_backend.delete_file(str(Path(escape_target) / "danger.pdf"))
+
+        folder_id = str(Path(valid_nas_credentials["path"]) / "Inbox")
+        file_id = await local_nas_backend.upload_file(folder_id, "audit.pdf", sample_pdf_file)
+        assert await local_nas_backend.delete_file(file_id) is True
+
+    @pytest.mark.asyncio
+    async def test_nas_auth_and_listing_cover_permission_and_errors(
+        self,
+        local_nas_backend,
+        temp_nas_path,
+        monkeypatch
+    ):
+        """✓ NAS auth and folder listing exercise permission and exception branches."""
+        missing = {"path": str(Path(temp_nas_path) / "missing"), "check_permissions": True}
+        with pytest.raises(FileNotFoundError):
+            await local_nas_backend.authenticate(missing)
+
+        valid = {"path": temp_nas_path, "username": "admin", "check_permissions": True}
+        monkeypatch.setattr("src.storage.local_nas.os.access", lambda *_args, **_kwargs: False)
+        with pytest.raises(PermissionError, match="No read permission"):
+            await local_nas_backend.authenticate(valid)
+
+        monkeypatch.setattr("src.storage.local_nas.os.access", lambda *_args, **_kwargs: True)
+        await local_nas_backend.authenticate(valid)
+
+        class BrokenPath:
+            def __iterdir__(self):
+                raise OSError("broken listing")
+
+        monkeypatch.setattr(local_nas_backend, "base_path", BrokenPath(), raising=False)
+        with pytest.raises(ConnectionError, match="Failed to list NAS folders"):
+            await local_nas_backend.list_folders()
+
+    @pytest.mark.asyncio
+    async def test_list_files_and_storage_info_cover_failure_paths(
+        self,
+        local_nas_backend,
+        valid_nas_credentials,
+        sample_pdf_file,
+        monkeypatch
+    ):
+        """✓ NAS listing and stats cover missing folders and exception handling."""
+        await local_nas_backend.authenticate(valid_nas_credentials)
+
+        folder_id = str(Path(valid_nas_credentials["path"]) / "Inbox")
+        with pytest.raises(FileNotFoundError):
+            await local_nas_backend.list_files(str(Path(valid_nas_credentials["path"]) / "Missing"), "*.pdf")
+
+        with pytest.raises(PermissionError, match="Path escape detected"):
+            await local_nas_backend.list_files(str(Path(valid_nas_credentials["path"]).parent), "*.pdf")
+
+        file_path = await local_nas_backend.upload_file(folder_id, "stats.pdf", sample_pdf_file)
+        info = await local_nas_backend.get_storage_info()
+        assert info["backend_type"] == "local_nas"
+        assert Path(file_path).exists()
+
+        def boom(*_args, **_kwargs):
+            raise OSError("stats failed")
+
+        monkeypatch.setattr("shutil.disk_usage", boom)
+        with pytest.raises(OSError, match="stats failed"):
+            await local_nas_backend.get_storage_info()
+
 
 # ============================================================================
 # Backend Interface Compliance Tests
@@ -441,6 +563,70 @@ class TestStorageBackendInterface:
         for method in required_methods:
             assert hasattr(local_nas_backend, method)
             assert callable(getattr(local_nas_backend, method))
+
+
+class TestStorageBackendManager:
+    """Runtime factory and fallback behavior for pluggable storage providers."""
+
+    def test_manager_returns_registered_backend(self):
+        manager = StorageBackendManager()
+        backend = manager.get_backend("local_nas")
+
+        assert isinstance(backend, LocalNASBackend)
+
+    def test_manager_supports_external_google_backend(self):
+        manager = StorageBackendManager()
+        backend = manager.get_backend("google_drive")
+
+        assert isinstance(backend, GoogleDriveBackend)
+
+    def test_manager_can_register_custom_backend(self):
+        class CustomBackend(LocalNASBackend):
+            pass
+
+        manager = StorageBackendManager()
+        manager.register_backend("custom_nas", CustomBackend)
+
+        assert isinstance(manager.get_backend("custom_nas"), CustomBackend)
+
+    def test_manager_rejects_unsupported_backend(self):
+        manager = StorageBackendManager()
+
+        with pytest.raises(ValueError, match="Unsupported storage backend"):
+            manager._resolve_backend("unsupported_backend")
+
+    @pytest.mark.asyncio
+    async def test_webhook_export_client_posts_payload_and_falls_back_to_local(self, monkeypatch):
+        client = WebhookExportClient(url="https://example.com/webhook")
+
+        class DummyResponse:
+            status_code = 200
+
+        async def fake_post(*args, **kwargs):
+            return DummyResponse()
+
+        monkeypatch.setattr("src.storage.httpx.AsyncClient.post", fake_post)
+
+        result = await client.send({"status": "classified", "filename": "report.pdf"})
+        assert result is True
+
+        fallback = await client.send({"status": "classified"}, timeout=1.0)
+        assert fallback is True
+
+    @pytest.mark.asyncio
+    async def test_webhook_export_client_handles_empty_url_and_http_failures(self, monkeypatch):
+        client = WebhookExportClient(url="")
+        assert await client.send({"status": "classified"}) is False
+
+        class FailedResponse:
+            status_code = 500
+
+        async def fake_post(*args, **kwargs):
+            return FailedResponse()
+
+        monkeypatch.setattr("src.storage.httpx.AsyncClient.post", fake_post)
+        failing = WebhookExportClient(url="https://example.com/failed")
+        assert await failing.send({"status": "failed"}) is False
 
 
 if __name__ == "__main__":

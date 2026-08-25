@@ -8,7 +8,7 @@ import re
 import shutil
 import subprocess
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import quote
@@ -218,9 +218,18 @@ app.add_middleware(
 @app.get("/")
 @app.get("/index.html")
 def serve_index() -> Response:
-    """Serve the handcrafted frontend with a cache-busting version stamp."""
+    """Serve the work interface with a cache-busting version stamp."""
     index_path = FRONTEND_DIR / "index.html"
     content = index_path.read_text(encoding="utf-8").replace("__APP_VERSION__", APP_VERSION)
+    return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+
+
+@app.get("/config")
+@app.get("/config.html")
+def serve_config_page() -> Response:
+    """Serve the separate configuration interface for routing rules."""
+    config_path = FRONTEND_DIR / "config.html"
+    content = config_path.read_text(encoding="utf-8").replace("__APP_VERSION__", APP_VERSION)
     return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
 
@@ -250,6 +259,85 @@ def write_document_state(filename: str, status: str, **details: object) -> None:
     states[filename] = {**existing, "status": status, **details}
     DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
+
+
+def cleanup_private_documents(now: Optional[datetime] = None) -> List[str]:
+    """Delete private files from source/destination and remove matching log records after the retention window expires."""
+    current_time = now or datetime.now(timezone.utc)
+    states = read_document_states()
+    expired_files: List[str] = []
+
+    for filename, details in list(states.items()):
+        if not isinstance(details, dict) or not details.get("private"):
+            continue
+        delete_after = details.get("delete_after")
+        if not delete_after:
+            continue
+        try:
+            deadline = datetime.fromisoformat(str(delete_after).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if current_time < deadline:
+            continue
+
+        expired_files.append(filename)
+        relative_name = None
+        try:
+            relative_name = normalize_relative_document_path(filename)
+        except HTTPException:
+            relative_name = None
+
+        candidate_roots = [SOURCE_PATH, ARCHIVE_PATH, DESTINATION_PATH]
+        for root in candidate_roots:
+            if relative_name is not None:
+                candidate = root / relative_name
+                if candidate.exists() and candidate.is_file():
+                    candidate.unlink()
+            if root == DESTINATION_PATH:
+                for nested in root.rglob(filename):
+                    if nested.is_file():
+                        nested.unlink()
+            elif root == SOURCE_PATH:
+                source_candidate = root / filename
+                if source_candidate.exists() and source_candidate.is_file():
+                    source_candidate.unlink()
+
+        for candidate in (
+            details.get("destination_path"),
+            details.get("archive_path"),
+            details.get("source_path"),
+        ):
+            if not candidate:
+                continue
+            try:
+                path = Path(str(candidate))
+                if path.exists() and path.is_file():
+                    path.unlink()
+            except (TypeError, ValueError, OSError):
+                continue
+
+        states.pop(filename, None)
+
+    if expired_files:
+        DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
+
+        jobs = read_job_store()
+        for job_id, job in list(jobs.items()):
+            if isinstance(job, dict) and job.get("filename") in expired_files:
+                jobs.pop(job_id, None)
+        JOB_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        JOB_STATUS_PATH.write_text(json.dumps(jobs, indent=2), encoding="utf-8")
+
+        audit = read_approval_audit()
+        entries = audit.get("entries", [])
+        audit["entries"] = [
+            entry for entry in entries if not isinstance(entry, dict) or entry.get("filename") not in expired_files
+        ]
+        APPROVAL_AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        APPROVAL_AUDIT_PATH.write_text(json.dumps(audit, indent=2), encoding="utf-8")
+
+    return expired_files
 
 
 def cached_analysis_result(filename: str, processing_path: Path) -> Optional[dict]:
@@ -775,6 +863,13 @@ def ensure_destinee_directories(destinees: List[str]) -> None:
         (DESTINATION_PATH / destinee).mkdir(exist_ok=True)
 
 
+class PrivateDocumentRequest(BaseModel):
+    """Request model for privacy retention scheduling."""
+
+    private: bool = True
+    delete_after_minutes: int = Field(default=60, ge=1, le=1440)
+
+
 def extract_layout_metadata(pdf: object) -> dict:
     """Extract stable positional clues without exposing the original PDF layout."""
     first_page = pdf[0] if len(pdf) else None
@@ -836,8 +931,42 @@ def update_classification_config(config: ClassificationConfig) -> Classification
     return response_for(config.destinees)
 
 
+@app.post("/api/documents/{filename:path}/private")
+def mark_document_private(filename: str, request: PrivateDocumentRequest) -> dict:
+    """Mark a document as private and schedule automatic deletion after the configured retention window."""
+    try:
+        relative_path = normalize_relative_document_path(filename)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    source_path = (SOURCE_PATH / relative_path).resolve()
+    destination_matches = list(DESTINATION_PATH.rglob(filename)) if DESTINATION_PATH.exists() else []
+    if not source_path.exists() and not destination_matches:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    delete_after = datetime.now(timezone.utc) + timedelta(minutes=request.delete_after_minutes)
+    document_details = read_document_states().get(filename, {})
+    if not isinstance(document_details, dict):
+        document_details = {}
+    document_details.update({
+        "private": bool(request.private),
+        "private_at": datetime.now(timezone.utc).isoformat(),
+        "delete_after": delete_after.isoformat(),
+        "source_path": str(source_path),
+        "destination_path": str(destination_matches[0]) if destination_matches else document_details.get("destination_path"),
+    })
+    write_document_state(filename, "private", **document_details)
+    return {
+        "status": "private",
+        "filename": filename,
+        "delete_after": delete_after.isoformat(),
+        "delete_after_minutes": request.delete_after_minutes,
+    }
+
+
 @app.post("/api/classification/scan")
 def scan_input_directory() -> dict:
+    cleanup_private_documents()
     if not SOURCE_PATH.exists() or not SOURCE_PATH.is_dir():
         raise HTTPException(status_code=503, detail="n8n input directory is unavailable")
     states = read_document_states()
