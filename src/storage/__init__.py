@@ -16,6 +16,7 @@ without code changes, following the CAVEMAN principle of Minimize (minimize
 code changes) and Agility (easy to adapt to new backends).
 """
 
+import re
 from abc import ABC, abstractmethod
 from typing import BinaryIO, List, Dict, Optional, Type, Any
 from datetime import datetime
@@ -191,18 +192,27 @@ class StorageBackendManager:
 
     _registry: Dict[str, Type[StorageBackend]] = {}
 
+    @staticmethod
+    def normalize_backend_name(name: str) -> str:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Storage backend name must be a non-empty string")
+        normalized = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+        if not normalized:
+            raise ValueError("Storage backend name must be a non-empty string")
+        return normalized
+
     def __init__(self) -> None:
         self.register_backend("local_nas", self._resolve_backend("local_nas"))
         self.register_backend("google_drive", self._resolve_backend("google_drive"))
 
     @staticmethod
     def _resolve_backend(name: str) -> Type[StorageBackend]:
-        normalized = name.lower()
-        if normalized == "local_nas":
+        normalized = StorageBackendManager.normalize_backend_name(name)
+        if normalized in {"local_nas", "localnas"}:
             from src.storage.local_nas import LocalNASBackend
 
             return LocalNASBackend
-        if normalized == "google_drive":
+        if normalized in {"google_drive", "googledrive"}:
             from src.storage.google_drive import GoogleDriveBackend
 
             return GoogleDriveBackend
@@ -210,16 +220,13 @@ class StorageBackendManager:
 
     @classmethod
     def register_backend(cls, name: str, backend_cls: Type[StorageBackend]) -> None:
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("Storage backend name must be a non-empty string")
+        normalized = cls.normalize_backend_name(name)
         if not isinstance(backend_cls, type):
             raise TypeError("Storage backend class must be a class object")
-        cls._registry[name.strip().lower()] = backend_cls
+        cls._registry[normalized] = backend_cls
 
     def get_backend(self, name: str) -> StorageBackend:
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("Storage backend name must be a non-empty string")
-        normalized = name.strip().lower()
+        normalized = self.normalize_backend_name(name)
         if normalized not in self._registry:
             self.register_backend(normalized, self._resolve_backend(normalized))
         return self._registry[normalized]()

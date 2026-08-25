@@ -580,6 +580,14 @@ class TestStorageBackendManager:
 
         assert isinstance(backend, GoogleDriveBackend)
 
+    def test_manager_normalizes_common_backend_aliases(self):
+        manager = StorageBackendManager()
+
+        assert isinstance(manager.get_backend("local-nas"), LocalNASBackend)
+        assert isinstance(manager.get_backend("Local NAS"), LocalNASBackend)
+        assert isinstance(manager.get_backend("google drive"), GoogleDriveBackend)
+        assert isinstance(manager.get_backend("Google_Drive"), GoogleDriveBackend)
+
     def test_manager_can_register_custom_backend(self):
         class CustomBackend(LocalNASBackend):
             pass
@@ -588,6 +596,15 @@ class TestStorageBackendManager:
         manager.register_backend("custom_nas", CustomBackend)
 
         assert isinstance(manager.get_backend("custom_nas"), CustomBackend)
+
+    def test_manager_register_backend_normalizes_aliases(self):
+        class CustomBackend(LocalNASBackend):
+            pass
+
+        manager = StorageBackendManager()
+        manager.register_backend("Custom NAS", CustomBackend)
+
+        assert isinstance(manager.get_backend("custom-nas"), CustomBackend)
 
     def test_manager_rejects_unsupported_backend(self):
         manager = StorageBackendManager()
