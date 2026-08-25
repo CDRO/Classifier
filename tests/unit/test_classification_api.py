@@ -603,6 +603,23 @@ def test_admin_dashboard_summary_exposes_health_metrics(monkeypatch, tmp_path):
     assert "quality_score" in summary["jobs"][0]
 
 
+def test_background_prewarm_scheduler_prepares_new_pdfs(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    processed = main.prewarm_pending_documents()
+
+    assert processed == 1
+    state = main.read_document_states().get("invoice.pdf", {})
+    assert state.get("status") == "in_review"
+    assert state.get("processing_id")
+    assert state.get("suggested_filename", "").endswith(".pdf")
+
+
 def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path):
     main, source, destination = load_api(monkeypatch, tmp_path)
     document = source / "invoice.pdf"

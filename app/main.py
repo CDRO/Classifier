@@ -297,6 +297,7 @@ class MergeDocumentsRequest(BaseModel):
 
 
 _cleanup_task: Optional[asyncio.Task[None]] = None
+_prewarm_task: Optional[asyncio.Task[None]] = None
 
 
 async def private_retention_worker() -> None:
@@ -311,14 +312,79 @@ async def private_retention_worker() -> None:
         await asyncio.sleep(60)
 
 
+async def prewarm_worker() -> None:
+    """Scan source folders and precompute metadata for pending PDFs before the user opens the web UI."""
+    while True:
+        try:
+            processed = prewarm_pending_documents()
+            if processed:
+                logger.info("Background prewarm processed pending documents", extra={"count": processed})
+        except Exception as exc:  # pragma: no cover - defensive guard for background task
+            logger.exception("Background prewarm failed", exc_info=exc)
+        await asyncio.sleep(30)
+
+
+def prewarm_pending_documents(limit: Optional[int] = None) -> int:
+    """Prepare and analyze PDFs that are queued but not yet processed, using the existing workflow."""
+    scan_input_directory()
+    states = read_document_states()
+    pending_names: List[str] = []
+    for source_root in read_source_roots():
+        if not source_root.exists() or not source_root.is_dir():
+            continue
+        for path in source_root.rglob("*.pdf"):
+            if not path.is_file():
+                continue
+            relative_name = path.relative_to(source_root).as_posix()
+            if any(part.startswith(".") for part in path.relative_to(source_root).parts):
+                continue
+            state = states.get(relative_name)
+            if not isinstance(state, dict):
+                pending_names.append(relative_name)
+                continue
+            if state.get("duplicate_of"):
+                continue
+            if state.get("status") in {"received", "failed"}:
+                pending_names.append(relative_name)
+                continue
+            if state.get("status") == "in_review" and state.get("processing_id") and not state.get("suggested_filename"):
+                pending_names.append(relative_name)
+                continue
+
+    processed = 0
+    for filename in pending_names:
+        if limit is not None and processed >= limit:
+            break
+        try:
+            prepared = prepare_document(filename, async_mode=False)
+            if isinstance(prepared, Response):
+                prepared_data = json.loads(prepared.body.decode("utf-8")) if prepared.body else {}
+            else:
+                prepared_data = prepared if isinstance(prepared, dict) else {}
+            processing_id = prepared_data.get("processing_id")
+            if not processing_id:
+                continue
+            analyze_document(filename, processing_id)
+            processed += 1
+        except HTTPException:
+            continue
+        except OSError:
+            continue
+        except (TypeError, ValueError):
+            continue
+    return processed
+
+
 async def startup_event() -> None:
-    global _cleanup_task
+    global _cleanup_task, _prewarm_task
     if _cleanup_task is None or _cleanup_task.done():
         _cleanup_task = asyncio.create_task(private_retention_worker())
+    if _prewarm_task is None or _prewarm_task.done():
+        _prewarm_task = asyncio.create_task(prewarm_worker())
 
 
 async def shutdown_event() -> None:
-    global _cleanup_task
+    global _cleanup_task, _prewarm_task
     if _cleanup_task is not None:
         _cleanup_task.cancel()
         try:
@@ -326,6 +392,13 @@ async def shutdown_event() -> None:
         except asyncio.CancelledError:
             pass
         _cleanup_task = None
+    if _prewarm_task is not None:
+        _prewarm_task.cancel()
+        try:
+            await _prewarm_task
+        except asyncio.CancelledError:
+            pass
+        _prewarm_task = None
 
 
 @asynccontextmanager
@@ -1150,6 +1223,12 @@ def update_classification_config(config: ClassificationConfig) -> Classification
 def route_document(request: RouteRequest) -> dict:
     """Return the resolved path for the selected destinee before writing output files."""
     return resolve_route_for_destinee(request.destinee, request.filename)
+
+
+@app.post("/api/classification/prewarm")
+def trigger_prewarm() -> dict:
+    """Run the same scan/prepare/analyze workflow in the background for any pending PDFs."""
+    return {"processed": prewarm_pending_documents(), "status": "ok"}
 
 
 @app.post("/api/documents/{filename:path}/private")
