@@ -340,10 +340,24 @@ def create_job_record(filename: str, processing_id: str, route_details: dict, pa
         queue_status=route_details.get("queue_status"),
         processing_strategy=route_details.get("processing_strategy"),
         page_count=page_count,
+        retry_count=0,
         created_at=job_timestamp,
         updated_at=job_timestamp,
     )
     return job_id
+
+
+def summarize_jobs() -> dict:
+    jobs = read_job_store()
+    counts = {"total_jobs": 0, "queued": 0, "processing": 0, "ready": 0, "failed": 0}
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        counts["total_jobs"] += 1
+        status = str(job.get("status", "unknown")).strip().lower()
+        if status in counts:
+            counts[status] += 1
+    return counts
 
 
 def extract_page_text(page: object) -> tuple[str, bool]:
@@ -1037,6 +1051,12 @@ def dismiss_document(filename: str, request: DismissRequest) -> dict:
     }
 
 
+@app.get("/api/jobs/summary")
+def get_job_summary() -> dict:
+    """Return a minimal operational summary of the persisted job queue."""
+    return summarize_jobs()
+
+
 @app.get("/api/jobs/{job_id}")
 def get_job_status(job_id: str) -> dict:
     """Read the persisted status for a queued or processed preparation job."""
@@ -1044,6 +1064,27 @@ def get_job_status(job_id: str) -> dict:
     job = jobs.get(job_id)
     if not isinstance(job, dict):
         raise HTTPException(status_code=404, detail="Job not found")
+    job.setdefault("retry_count", 0)
+    return job
+
+
+@app.post("/api/jobs/{job_id}/retry")
+def retry_job(job_id: str) -> dict:
+    """Reset a job to the queued state and increment its retry count for admin recovery."""
+    jobs = read_job_store()
+    job = jobs.get(job_id)
+    if not isinstance(job, dict):
+        raise HTTPException(status_code=404, detail="Job not found")
+    retry_count = int(job.get("retry_count", 0) or 0) + 1
+    job_timestamp = datetime.now(timezone.utc).isoformat()
+    job.update({
+        "status": "queued",
+        "retry_count": retry_count,
+        "updated_at": job_timestamp,
+    })
+    jobs[job_id] = job
+    JOB_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    JOB_STATUS_PATH.write_text(json.dumps(jobs, indent=2), encoding="utf-8")
     return job
 
 

@@ -228,6 +228,27 @@ def test_prepare_async_returns_queued_job_and_persists_status(monkeypatch, tmp_p
     assert job["status"] in {"queued", "processing", "ready", "failed"}
 
 
+def test_queue_summary_and_retry_flow_exposes_hardening_status(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    client = TestClient(main.app)
+    queued = client.post("/api/documents/invoice.pdf/prepare?async=true").json()
+    summary = client.get("/api/jobs/summary").json()
+
+    assert summary["total_jobs"] >= 1
+    assert summary["queued"] >= 1
+    retry_response = client.post(f"/api/jobs/{queued['job_id']}/retry")
+    assert retry_response.status_code == 200
+    retried_job = client.get(f"/api/jobs/{queued['job_id']}").json()
+    assert retried_job["status"] == "queued"
+    assert retried_job["retry_count"] >= 1
+
+
 def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path):
     main, source, destination = load_api(monkeypatch, tmp_path)
     document = source / "invoice.pdf"
