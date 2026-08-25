@@ -72,6 +72,7 @@ class ClassificationConfig(BaseModel):
 
     destinees: List[str] = Field(min_length=0, max_length=50)
     source_roots: List[str] = Field(default_factory=list, min_length=0, max_length=20)
+    destination_roots: Dict[str, str] = Field(default_factory=dict)
 
     @field_validator("destinees")
     @classmethod
@@ -97,6 +98,20 @@ class ClassificationConfig(BaseModel):
             raise ValueError("Source roots must be unique")
         return cleaned
 
+    @field_validator("destination_roots")
+    @classmethod
+    def validate_destination_roots(cls, values: Dict[str, str]) -> Dict[str, str]:
+        normalized: Dict[str, str] = {}
+        for destinee, path in values.items():
+            cleaned_name = str(destinee).strip()
+            cleaned_path = str(path).strip()
+            if not cleaned_name or not cleaned_path:
+                raise ValueError("Destination route mappings must include both a destinee name and a folder path")
+            if any(not _DESTINEE_PATTERN.fullmatch(cleaned_name) for _ in [cleaned_name]):
+                raise ValueError("Destination route names cannot contain path separators")
+            normalized[cleaned_name] = cleaned_path
+        return normalized
+
 
 class ClassificationResponse(ClassificationConfig):
     """Configuration response including immutable runtime paths."""
@@ -104,6 +119,7 @@ class ClassificationResponse(ClassificationConfig):
     input_path: str
     output_root: str
     source_roots: List[str]
+    destination_roots: Dict[str, str]
 
 
 class FinalizeRequest(BaseModel):
@@ -915,14 +931,31 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None, layout: Op
         return None
 
 
+def read_destination_roots() -> Dict[str, str]:
+    default_roots = {destinee: str(DESTINATION_PATH / destinee) for destinee in read_config()}
+    if not CONFIG_PATH.exists():
+        return default_roots
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        config = ClassificationConfig.model_validate(data)
+        configured = config.destination_roots
+        if configured:
+            return configured
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    return default_roots
+
+
 def response_for(destinees: List[str]) -> ClassificationResponse:
     ensure_destinee_directories(destinees)
     source_roots = [str(path) for path in read_source_roots()]
+    destination_roots = read_destination_roots()
     return ClassificationResponse(
         destinees=destinees,
         input_path=str(source_roots[0]) if source_roots else str(SOURCE_PATH),
         output_root=f"{DESTINATION_PATH}/",
         source_roots=source_roots,
+        destination_roots=destination_roots,
     )
 
 
@@ -1008,6 +1041,8 @@ def update_classification_config(config: ClassificationConfig) -> Classification
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(config.model_dump_json(indent=2), encoding="utf-8")
         ensure_destinee_directories(config.destinees)
+        for destinee, destination_path in config.destination_roots.items():
+            Path(destination_path).mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise HTTPException(status_code=500, detail="Unable to persist classification configuration") from exc
     return response_for(config.destinees)
