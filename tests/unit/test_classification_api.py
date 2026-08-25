@@ -31,6 +31,80 @@ def load_api(monkeypatch, tmp_path):
     return importlib.reload(main), source, destination
 
 
+def test_index_links_to_configuration_page():
+    index_html = Path("frontend/index.html").read_text(encoding="utf-8")
+    assert 'href="config.html"' in index_html
+
+
+def test_index_does_not_load_config_script():
+    index_html = Path("frontend/index.html").read_text(encoding="utf-8")
+    assert 'src="config.js' not in index_html
+
+
+def test_config_page_implements_live_configuration_interface():
+    config_js = Path("frontend/config.js").read_text(encoding="utf-8")
+    assert "fetch(`${API_BASE_URL}/api/classification/config`" in config_js
+    assert "document.querySelector(\"#destinee-form\")?.addEventListener(\"submit\"" in config_js
+
+
+def test_config_page_clears_stale_destinee_state_after_delete_and_save():
+    config_js = Path("frontend/config.js").read_text(encoding="utf-8")
+    assert "buildValidDestinationRouteMap" in config_js
+    assert "localStorage.removeItem(STORAGE_KEY)" in config_js
+    assert "readDestinationRouteRows" in config_js
+
+
+def test_config_page_rebuilds_route_state_from_current_destinees():
+    config_js = Path("frontend/config.js").read_text(encoding="utf-8")
+    assert "renderDestinationRoutes(validDestinees, nextRoutes)" in config_js
+    assert "const validDestinees = sanitizeDestineeList(destinees);" in config_js
+
+
+def test_config_page_exposes_source_and_destination_configuration_fields():
+    config_html = Path("frontend/config.html").read_text(encoding="utf-8")
+    assert 'id="destinee-list"' in config_html
+    assert 'id="source-root-list"' in config_html
+    assert 'id="destination-route-list"' in config_html
+
+    config_js = Path("frontend/config.js").read_text(encoding="utf-8")
+    assert "source_roots" in config_js
+    assert "destination_roots" in config_js
+    assert "buildDefaultDestinationRoutes" in config_js
+
+
+def test_default_source_root_is_accepted_even_when_absent(monkeypatch, tmp_path):
+    monkeypatch.setenv("RAW_INPUT_PATH", "/data/source")
+    monkeypatch.setenv("CLASSIFIED_OUTPUT_PATH", str(tmp_path / "destination"))
+    monkeypatch.setenv("CLASSIFICATION_CONFIG_PATH", str(tmp_path / "classification.json"))
+    monkeypatch.setenv("DOCUMENTS_STATUS_PATH", str(tmp_path / "documents.json"))
+    monkeypatch.setenv("ANALYSIS_STATUS_PATH", str(tmp_path / "analysis-status.json"))
+    monkeypatch.setenv("TEMP_PATH", str(tmp_path / "temp"))
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    import app.main as main
+    main = importlib.reload(main)
+
+    response = TestClient(main.app).get("/api/classification/config")
+
+    assert response.status_code == 200
+    assert response.json()["source_roots"] == ["/data/source"]
+
+
+def test_api_allows_browser_requests_from_port_3001(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    response = client.options(
+        "/api/classification/config",
+        headers={
+            "Origin": "http://127.0.0.1:3001",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://127.0.0.1:3001"
+
+
 def test_get_default_classification_config(monkeypatch, tmp_path):
     main, _, _ = load_api(monkeypatch, tmp_path)
     response = TestClient(main.app).get("/api/classification/config")
@@ -110,6 +184,79 @@ def test_configuration_accepts_multiple_destination_routes(monkeypatch, tmp_path
     }
 
 
+def test_destination_routes_default_to_standard_output_for_unmapped_destinees(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/classification/config",
+        json={
+            "destinees": ["Finance", "Legal"],
+            "destination_roots": {"Finance": str(tmp_path / "finance-out")},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["destination_roots"] == {"Finance": str(tmp_path / "finance-out")}
+    legal_route = client.post("/api/classification/route", json={"destinee": "Legal", "filename": "invoice.pdf"})
+    assert legal_route.status_code == 200
+    root_path = Path(legal_route.json()["root_path"])
+    assert root_path.name == "Legal"
+    assert "destination" in root_path.parent.name.lower()
+
+
+def test_destination_route_names_must_match_configured_destinees(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/classification/config",
+        json={
+            "destinees": ["Finance"],
+            "destination_roots": {"Unknown": str(tmp_path / "shadow-out")},
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_route_planner_uses_configured_destination_root(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+    finance_root = tmp_path / "finance-root"
+    finance_root.mkdir()
+
+    client.post(
+        "/api/classification/config",
+        json={
+            "destinees": ["Finance"],
+            "destination_roots": {"Finance": str(finance_root)},
+        },
+    )
+
+    response = client.post(
+        "/api/classification/route",
+        json={"destinee": "Finance", "filename": "invoice.pdf"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["destination_path"] == str(finance_root / "invoice.pdf")
+    assert response.json()["resolved_destinee"] == "Finance"
+
+
+def test_route_planner_rejects_unknown_destinee(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/classification/route",
+        json={"destinee": "Unknown", "filename": "invoice.pdf"},
+    )
+
+    assert response.status_code == 400
+    assert "not configured" in response.json()["detail"].lower()
+
+
 def test_valid_nas_source_root_is_accepted(monkeypatch, tmp_path):
     main, _, _ = load_api(monkeypatch, tmp_path)
     client = TestClient(main.app)
@@ -182,8 +329,8 @@ def test_configuration_interface_is_separate_from_work_interface(monkeypatch, tm
 
     assert config_html.exists()
     assert "destinee-form" in config_html.read_text(encoding="utf-8")
-    assert "app.js" not in config_html.read_text(encoding="utf-8")
-    assert "config.js" in index_html.read_text(encoding="utf-8")
+    assert "config.js" in config_html.read_text(encoding="utf-8")
+    assert "config.js" not in index_html.read_text(encoding="utf-8")
 
 
 def test_mark_document_private_schedules_cleanup_and_removes_logs(monkeypatch, tmp_path):
@@ -456,6 +603,23 @@ def test_admin_dashboard_summary_exposes_health_metrics(monkeypatch, tmp_path):
     assert "quality_score" in summary["jobs"][0]
 
 
+def test_background_prewarm_scheduler_prepares_new_pdfs(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    processed = main.prewarm_pending_documents()
+
+    assert processed == 1
+    state = main.read_document_states().get("invoice.pdf", {})
+    assert state.get("status") == "in_review"
+    assert state.get("processing_id")
+    assert state.get("suggested_filename", "").endswith(".pdf")
+
+
 def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path):
     main, source, destination = load_api(monkeypatch, tmp_path)
     document = source / "invoice.pdf"
@@ -471,6 +635,48 @@ def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path)
     assert response.status_code == 200
     assert response.json()["status"] == "classified"
     assert (destination / "Destinee A" / "invoice.pdf").read_bytes() == b"prepared pdf"
+
+
+def test_finalize_respects_configured_route_override_and_default_fallback(monkeypatch, tmp_path):
+    main, source, destination = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+    custom_root = tmp_path / "custom-route"
+    custom_root.mkdir()
+
+    client.post(
+        "/api/classification/config",
+        json={
+            "destinees": ["Finance", "Legal"],
+            "source_roots": [str(source)],
+            "destination_roots": {"Finance": str(custom_root)},
+        },
+    )
+
+    finance_document = source / "finance.pdf"
+    finance_document.write_bytes(b"finance pdf")
+    finance_prepared = client.post("/api/documents/finance.pdf/prepare").json()
+
+    finance_response = client.post(
+        "/api/documents/finance.pdf/finalize",
+        json={"processing_id": finance_prepared["processing_id"], "destinee": "Finance"},
+    )
+
+    assert finance_response.status_code == 200
+    assert finance_response.json()["destination_path"] == str(custom_root / "finance.pdf")
+    assert (custom_root / "finance.pdf").read_bytes() == b"finance pdf"
+
+    legal_document = source / "legal.pdf"
+    legal_document.write_bytes(b"legal pdf")
+    legal_prepared = client.post("/api/documents/legal.pdf/prepare").json()
+
+    legal_response = client.post(
+        "/api/documents/legal.pdf/finalize",
+        json={"processing_id": legal_prepared["processing_id"], "destinee": "Legal"},
+    )
+
+    assert legal_response.status_code == 200
+    assert legal_response.json()["destination_path"] == str(destination / "Legal" / "legal.pdf")
+    assert (destination / "Legal" / "legal.pdf").read_bytes() == b"legal pdf"
 
 
 def test_approval_roles_are_enforced_and_audited(monkeypatch, tmp_path):

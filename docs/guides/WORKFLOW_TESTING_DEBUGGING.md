@@ -14,6 +14,39 @@ This document defines a comprehensive workflow for testing, fuzzing, bug detecti
 
 ## 1. Testing Strategy
 
+### 1.0 Live regression pattern for config persistence (port 3001)
+
+The configuration UI must behave deterministically under repeated delete/save cycles. This is the live browser procedure used during debugging and it should be repeated before any config change is considered complete:
+
+```bash
+# Start the app in the local container environment
+python -m uvicorn app.main:app --host 127.0.0.1 --port 3001
+
+# Open the config page in the browser
+http://127.0.0.1:3001/config
+```
+
+Then perform the exact sequence below:
+
+1. Add four distinct destinees.
+2. Save the configuration.
+3. Delete one destinee and save again.
+4. Refresh the page and verify the deleted item is gone.
+5. Add the same name back once and save.
+6. Confirm the re-added config appears only once and no stale deleted entries return.
+7. Repeat with multiple deletes in different orders to ensure the list stays consistent.
+8. Confirm that each remaining destinee still resolves to the default path `/data/destination/<destinee>/` when no explicit route override exists.
+
+Important rules:
+- never merge stale local state back into server config after a save
+- destroy any previous `classifier.destinees` localStorage data when a save is accepted
+- route overrides must only be kept for currently configured destinees
+- a deleted config must not be resurrected by a later page load
+
+This pattern is the required regression check for source/destination configuration changes and should be rerun whenever route validation or persistence logic changes.
+
+---
+
 ### 1.1 Testing Pyramid
 
 ```
