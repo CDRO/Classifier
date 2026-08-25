@@ -620,6 +620,48 @@ def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path)
     assert (destination / "Destinee A" / "invoice.pdf").read_bytes() == b"prepared pdf"
 
 
+def test_finalize_respects_configured_route_override_and_default_fallback(monkeypatch, tmp_path):
+    main, source, destination = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+    custom_root = tmp_path / "custom-route"
+    custom_root.mkdir()
+
+    client.post(
+        "/api/classification/config",
+        json={
+            "destinees": ["Finance", "Legal"],
+            "source_roots": [str(source)],
+            "destination_roots": {"Finance": str(custom_root)},
+        },
+    )
+
+    finance_document = source / "finance.pdf"
+    finance_document.write_bytes(b"finance pdf")
+    finance_prepared = client.post("/api/documents/finance.pdf/prepare").json()
+
+    finance_response = client.post(
+        "/api/documents/finance.pdf/finalize",
+        json={"processing_id": finance_prepared["processing_id"], "destinee": "Finance"},
+    )
+
+    assert finance_response.status_code == 200
+    assert finance_response.json()["destination_path"] == str(custom_root / "finance.pdf")
+    assert (custom_root / "finance.pdf").read_bytes() == b"finance pdf"
+
+    legal_document = source / "legal.pdf"
+    legal_document.write_bytes(b"legal pdf")
+    legal_prepared = client.post("/api/documents/legal.pdf/prepare").json()
+
+    legal_response = client.post(
+        "/api/documents/legal.pdf/finalize",
+        json={"processing_id": legal_prepared["processing_id"], "destinee": "Legal"},
+    )
+
+    assert legal_response.status_code == 200
+    assert legal_response.json()["destination_path"] == str(destination / "Legal" / "legal.pdf")
+    assert (destination / "Legal" / "legal.pdf").read_bytes() == b"legal pdf"
+
+
 def test_approval_roles_are_enforced_and_audited(monkeypatch, tmp_path):
     main, source, _ = load_api(monkeypatch, tmp_path)
     (source / "invoice.pdf").write_bytes(b"prepared pdf")
