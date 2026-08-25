@@ -39,6 +39,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+google-drive = [
+    "google-auth-oauthlib>=1.1.0",
+    "google-auth-httplib2>=0.2.0",
+    "google-api-python-client>=2.100.0",
+]
+
 dev = [
     # Testing
     "pytest>=7.4.0",

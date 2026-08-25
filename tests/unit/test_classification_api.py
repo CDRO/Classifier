@@ -4,6 +4,7 @@ import importlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -37,6 +38,22 @@ def test_get_default_classification_config(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.json()["destinees"] == []
     assert response.json()["output_root"].endswith("destination/")
+
+
+def test_legacy_api_config_alias_is_supported(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    get_response = client.get("/api/config")
+    assert get_response.status_code == 200
+    assert get_response.json()["output_root"].endswith("destination/")
+
+    post_response = client.post(
+        "/api/config",
+        json={"destinees": ["Finance", "Legal"]},
+    )
+    assert post_response.status_code == 200
+    assert post_response.json()["destinees"] == ["Finance", "Legal"]
 
 
 def test_update_config_creates_destinee_directories(monkeypatch, tmp_path):
@@ -109,6 +126,26 @@ def test_mark_document_private_schedules_cleanup_and_removes_logs(monkeypatch, t
     assert not destination_file.exists()
     assert main.read_approval_audit()["entries"] == []
     assert "job-1" not in main.read_job_store()
+
+
+@pytest.mark.asyncio
+async def test_startup_event_schedules_private_retention_worker(monkeypatch):
+    import app.main as main
+
+    created = {}
+    fake_task = object()
+
+    def fake_create_task(coro):
+        created["coro"] = coro
+        return fake_task
+
+    monkeypatch.setattr(main.asyncio, "create_task", fake_create_task)
+    main._cleanup_task = None
+
+    await main.startup_event()
+
+    assert main._cleanup_task is fake_task
+    assert created["coro"] is not None
 
 
 def test_scan_returns_completed_pdfs_only(monkeypatch, tmp_path):

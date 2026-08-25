@@ -1,13 +1,16 @@
 """Native configuration API for the n8n/local classification workflow."""
 
+import asyncio
 import json
 import base64
 import hashlib
+import logging
 import os
 import re
 import shutil
 import subprocess
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -43,6 +46,8 @@ GEMINI_ENDPOINT = os.getenv(
 GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "20"))
 OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+deu")
 OCR_RENDER_SCALE = float(os.getenv("OCR_RENDER_SCALE", "2"))
+
+logger = logging.getLogger(__name__)
 
 _DESTINEE_PATTERN = re.compile(r"^[^/\\\x00]+$")
 _FILENAME_PATTERN = re.compile(r"^[^/\\\x00]+\.pdf$", re.IGNORECASE)
@@ -206,7 +211,52 @@ class MergeDocumentsRequest(BaseModel):
         return cleaned
 
 
-app = FastAPI(title="Document Classifier API", version=os.getenv("APP_VERSION", "0.10.0"))
+_cleanup_task: Optional[asyncio.Task[None]] = None
+
+
+async def private_retention_worker() -> None:
+    """Run periodic cleanup so expired private files are removed even without a fresh user request."""
+    while True:
+        try:
+            expired = cleanup_private_documents()
+            if expired:
+                logger.info("Expired private documents removed", extra={"count": len(expired), "items": expired})
+        except Exception as exc:  # pragma: no cover - defensive guard for background task
+            logger.exception("Private retention cleanup failed", exc_info=exc)
+        await asyncio.sleep(60)
+
+
+async def startup_event() -> None:
+    global _cleanup_task
+    if _cleanup_task is None or _cleanup_task.done():
+        _cleanup_task = asyncio.create_task(private_retention_worker())
+
+
+async def shutdown_event() -> None:
+    global _cleanup_task
+    if _cleanup_task is not None:
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
+        _cleanup_task = None
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await startup_event()
+    try:
+        yield
+    finally:
+        await shutdown_event()
+
+
+app = FastAPI(
+    title="Document Classifier API",
+    version=os.getenv("APP_VERSION", "0.10.0"),
+    lifespan=lifespan,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -915,11 +965,13 @@ def version_status() -> dict:
     return {"version": APP_VERSION, "revision": APP_REVISION}
 
 
+@app.get("/api/config", response_model=ClassificationResponse)
 @app.get("/api/classification/config", response_model=ClassificationResponse)
 def get_classification_config() -> ClassificationResponse:
     return response_for(read_config())
 
 
+@app.post("/api/config", response_model=ClassificationResponse)
 @app.post("/api/classification/config", response_model=ClassificationResponse)
 def update_classification_config(config: ClassificationConfig) -> ClassificationResponse:
     try:

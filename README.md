@@ -46,11 +46,14 @@ This is the initial implementation of the document processing pipeline: **n8n in
 ### 1. Install Dependencies
 
 ```bash
+# Install core dependencies
+pip install -e .
+
+# Install the optional Google Drive backend support
+pip install -e ".[google-drive]"
+
 # Install development dependencies
 pip install -e ".[dev]"
-
-# Or just install core dependencies
-pip install -e .
 ```
 
 ### 2. Run the Native Frontend in Docker
@@ -137,6 +140,33 @@ The temporary `/data/temp/processing/<processing_id>/` workspace is removed afte
 - One output folder per configured destinee
 - No destinees are preconfigured; administrators add them in the web interface.
 - Destinees can be edited in the native browser interface
+
+## Private Retention Guarantee
+
+Private documents are not only marked; they are enforced by a persisted expiry timestamp and a background cleanup loop.
+
+### How it works
+
+1. A document is marked private through `POST /api/documents/{filename}/private`.
+2. The app stores the following state in `documents.json`:
+   - `private: true`
+   - `private_at`
+   - `delete_after`
+   - the source and destination paths that were observed at the time of marking
+3. The app starts a background task on startup that calls `cleanup_private_documents()` every 60 seconds.
+4. `cleanup_private_documents()` compares the current UTC timestamp with the stored `delete_after` value.
+5. When the current time is past the deadline, it deletes the file from the source directory and any matching destination copies, then removes the matching log/job/audit entries.
+6. The same cleanup is also triggered during `scan_input_directory()`, so resumed scans do not leave expired private files behind.
+
+### Why this guarantees the one-hour window
+
+The decisive requirement is the persisted `delete_after` time. It is not just a UI flag or a transient variable. If the app is still running, the 60-second worker enforces it automatically. If the app restarts, the timestamp remains in the persisted state and the next startup worker continues enforcing it. The deletion is therefore tied to the actual deadline, not to a page refresh or a single request.
+
+### Operational safety
+
+- Files are deleted from both source and destination copies when they match the private record.
+- Matching job records and audit entries are removed to prevent stale references.
+- Cleanup is best-effort while the app is running, but the persisted deadline remains the source of truth and is rechecked by the worker loop.
 
 ## Testing
 

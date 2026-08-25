@@ -33,6 +33,25 @@ from src.storage import StorageBackend
 logger = logging.getLogger(__name__)
 
 
+def _build_service(service_account_config: Dict[str, str]):
+    """Build a Google Drive service when the optional SDK is installed.
+
+    This keeps the backend usable in environments that have the Google libraries,
+    while staying lightweight and non-breaking for regular local-only installs.
+    """
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+    except ImportError:
+        return None
+
+    credentials = service_account.Credentials.from_service_account_info(
+        service_account_config,
+        scopes=["https://www.googleapis.com/auth/drive"],
+    )
+    return build("drive", "v3", credentials=credentials, cache_discovery=False)
+
+
 class GoogleDriveBackend(StorageBackend):
     """
     Google Drive storage backend implementation.
@@ -93,11 +112,14 @@ class GoogleDriveBackend(StorageBackend):
             if credentials.get("type") != "service_account":
                 raise ValueError(f"Expected type='service_account', got {credentials.get('type')}")
 
-            # The project intentionally keeps the backend pluggable and lightweight.
-            # A real provider would authenticate with the Google API client here; the
-            # current runtime keeps a stubbed service handle so the interface contract
-            # remains consistent without requiring optional cloud SDK dependencies.
-            self.service = object()
+            service = _build_service(credentials)
+            if service is None:
+                logger.warning(
+                    "Google Drive SDK not available; using lightweight stub service",
+                    extra={"account": credentials.get("client_email")},
+                )
+                service = object()
+            self.service = service
             self.credentials = credentials
             self.account_email = credentials.get("client_email")
 
