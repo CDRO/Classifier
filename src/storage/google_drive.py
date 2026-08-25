@@ -33,12 +33,28 @@ from src.storage import StorageBackend
 logger = logging.getLogger(__name__)
 
 
+def _validate_service_account_config(service_account_config: Dict[str, str]) -> None:
+    """Reject malformed service-account config before any silent fallback is used."""
+    required_fields = ["type", "project_id", "private_key", "client_email"]
+    for field in required_fields:
+        if field not in service_account_config or not str(service_account_config[field]).strip():
+            raise ValueError(f"Missing required credential field: {field}")
+
+    if service_account_config.get("type") != "service_account":
+        raise ValueError(f"Expected type='service_account', got {service_account_config.get('type')}")
+
+    private_key = str(service_account_config["private_key"])
+    if "-----BEGIN" not in private_key or "PRIVATE KEY-----" not in private_key:
+        raise ValueError("Malformed private_key: service account JSON is not valid")
+
+
 def _build_service(service_account_config: Dict[str, str]):
     """Build a Google Drive service when the optional SDK is installed.
 
     This keeps the backend usable in environments that have the Google libraries,
     while staying lightweight and non-breaking for regular local-only installs.
     """
+    _validate_service_account_config(service_account_config)
     try:
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
@@ -103,14 +119,7 @@ class GoogleDriveBackend(StorageBackend):
             ConnectionError: If Google API unreachable
         """
         try:
-            # Validate credential format
-            required_fields = ["type", "project_id", "private_key", "client_email"]
-            for field in required_fields:
-                if field not in credentials:
-                    raise ValueError(f"Missing required credential field: {field}")
-
-            if credentials.get("type") != "service_account":
-                raise ValueError(f"Expected type='service_account', got {credentials.get('type')}")
+            _validate_service_account_config(credentials)
 
             service = _build_service(credentials)
             if service is None:

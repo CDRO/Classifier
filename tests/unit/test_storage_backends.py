@@ -139,6 +139,19 @@ class TestGoogleDriveBackend:
         
         with pytest.raises(ValueError, match="Expected type='service_account'"):
             await google_drive_backend.authenticate(invalid_creds)
+
+    @pytest.mark.asyncio
+    async def test_authenticate_rejects_malformed_private_key_before_stub_fallback(
+        self,
+        google_drive_backend,
+        valid_google_drive_credentials
+    ):
+        """✓ Malformed service account configuration fails fast instead of silently falling back to the stub."""
+        invalid_creds = {**valid_google_drive_credentials}
+        invalid_creds["private_key"] = "this-is-not-a-real-private-key"
+
+        with pytest.raises(ValueError, match="private_key"):
+            await google_drive_backend.authenticate(invalid_creds)
     
     @pytest.mark.asyncio
     async def test_list_folders_before_auth_fails(self, google_drive_backend):
