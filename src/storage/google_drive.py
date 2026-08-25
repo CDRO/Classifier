@@ -177,9 +177,13 @@ class GoogleDriveBackend(StorageBackend):
 
     @classmethod
     def from_environment(cls, env: Optional[Dict[str, str]] = None):
-        """Create a backend from a service-account file path if one is configured in the environment."""
+        """Create a backend from a configured service-account path in the standard Google env names."""
         values = env or dict(os.environ)
-        for key in ("GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH", "GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE"):
+        for key in (
+            "GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH",
+            "GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+        ):
             configured_path = values.get(key)
             if configured_path and configured_path.strip():
                 return cls(service_account_path=configured_path)
