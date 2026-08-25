@@ -230,17 +230,17 @@ class LocalNASBackend(StorageBackend):
             logger.info(
                 "Uploaded file to NAS",
                 extra={
-                    "filename": filename,
-                    "folder_id": folder_id,
+                    "file_name": filename,
+                    "folder_path": folder_id,
                     "size": file_path.stat().st_size
                 }
             )
             return str(file_path)
-            
+
         except Exception as e:
             logger.error(
                 "NAS upload failed",
-                extra={"filename": filename, "folder_id": folder_id, "error": str(e)}
+                extra={"file_name": filename, "folder_path": folder_id, "error": str(e)}
             )
             raise
     
@@ -294,12 +294,12 @@ class LocalNASBackend(StorageBackend):
             
             logger.info(
                 "Downloaded file from NAS",
-                extra={"file_id": file_id, "size": file_path.stat().st_size}
+                extra={"file_identifier": file_id, "size": file_path.stat().st_size}
             )
             return file_stream
-            
+
         except Exception as e:
-            logger.error("NAS download failed", extra={"file_id": file_id, "error": str(e)})
+            logger.error("NAS download failed", extra={"file_identifier": file_id, "error": str(e)})
             raise
     
     async def list_files(
@@ -356,17 +356,17 @@ class LocalNASBackend(StorageBackend):
             logger.info(
                 "Listed NAS files",
                 extra={
-                    "folder_id": folder_id,
+                    "folder_path": folder_id,
                     "pattern": pattern,
                     "count": len(files)
                 }
             )
             return files
-            
+
         except Exception as e:
             logger.error(
                 "NAS file listing failed",
-                extra={"folder_id": folder_id, "error": str(e)}
+                extra={"folder_path": folder_id, "error": str(e)}
             )
             raise
     
@@ -406,11 +406,11 @@ class LocalNASBackend(StorageBackend):
             # Delete file
             file_path.unlink()
             
-            logger.info("Deleted file from NAS", extra={"file_id": file_id})
+            logger.info("Deleted file from NAS", extra={"file_identifier": file_id})
             return True
-            
+
         except Exception as e:
-            logger.error("NAS deletion failed", extra={"file_id": file_id, "error": str(e)})
+            logger.error("NAS deletion failed", extra={"file_identifier": file_id, "error": str(e)})
             raise
     
     async def get_storage_info(self) -> Dict[str, str]:

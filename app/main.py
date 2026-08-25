@@ -8,20 +8,21 @@ import re
 import shutil
 import subprocess
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
 import httpx
 import pymupdf as fitz
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 DEFAULT_DESTINEES: List[str] = []
-APP_VERSION = os.getenv("APP_VERSION", "dev")
+APP_VERSION = os.getenv("APP_VERSION", "2.0.0")
 APP_REVISION = os.getenv("APP_REVISION", "unknown")
 SOURCE_PATH = Path(os.getenv("RAW_INPUT_PATH", "/data/source"))
 DESTINATION_PATH = Path(os.getenv("CLASSIFIED_OUTPUT_PATH", "/data/destination"))
@@ -30,6 +31,8 @@ DISMISSED_PATH = Path(os.getenv("DISMISSED_ARCHIVE_PATH", "/data/archive/dismiss
 CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classification.json"))
 DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
 ANALYSIS_STATUS_PATH = Path(os.getenv("ANALYSIS_STATUS_PATH", "/data/config/analysis-status.json"))
+JOB_STATUS_PATH = Path(os.getenv("JOB_STATUS_PATH", "/data/config/jobs.json"))
+APPROVAL_AUDIT_PATH = Path(os.getenv("APPROVAL_AUDIT_PATH", "/data/config/approval-audit.json"))
 TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
 FRONTEND_DIR = Path("/app/frontend") if Path("/app/frontend").exists() else Path(__file__).resolve().parent.parent / "frontend"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -92,6 +95,8 @@ class FinalizeRequest(BaseModel):
     processing_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-f0-9]+$")
     destinee: str = Field(min_length=1, max_length=80)
     output_filename: Optional[str] = Field(default=None, max_length=180)
+    actor: Optional[str] = Field(default=None, max_length=80)
+    role: Optional[str] = Field(default=None, max_length=20)
 
     @field_validator("output_filename")
     @classmethod
@@ -102,6 +107,16 @@ class FinalizeRequest(BaseModel):
         if not _FILENAME_PATTERN.fullmatch(cleaned):
             raise ValueError("Output filename must be a single .pdf filename")
         return cleaned
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in {"reviewer", "approver", "admin"}:
+            raise ValueError("Role must be reviewer, approver, or admin")
+        return normalized
 
 
 class RotateRequest(BaseModel):
@@ -203,9 +218,18 @@ app.add_middleware(
 @app.get("/")
 @app.get("/index.html")
 def serve_index() -> Response:
-    """Serve the handcrafted frontend with a cache-busting version stamp."""
+    """Serve the work interface with a cache-busting version stamp."""
     index_path = FRONTEND_DIR / "index.html"
     content = index_path.read_text(encoding="utf-8").replace("__APP_VERSION__", APP_VERSION)
+    return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+
+
+@app.get("/config")
+@app.get("/config.html")
+def serve_config_page() -> Response:
+    """Serve the separate configuration interface for routing rules."""
+    config_path = FRONTEND_DIR / "config.html"
+    content = config_path.read_text(encoding="utf-8").replace("__APP_VERSION__", APP_VERSION)
     return Response(content=content, media_type="text/html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
 
@@ -235,6 +259,85 @@ def write_document_state(filename: str, status: str, **details: object) -> None:
     states[filename] = {**existing, "status": status, **details}
     DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
+
+
+def cleanup_private_documents(now: Optional[datetime] = None) -> List[str]:
+    """Delete private files from source/destination and remove matching log records after the retention window expires."""
+    current_time = now or datetime.now(timezone.utc)
+    states = read_document_states()
+    expired_files: List[str] = []
+
+    for filename, details in list(states.items()):
+        if not isinstance(details, dict) or not details.get("private"):
+            continue
+        delete_after = details.get("delete_after")
+        if not delete_after:
+            continue
+        try:
+            deadline = datetime.fromisoformat(str(delete_after).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if current_time < deadline:
+            continue
+
+        expired_files.append(filename)
+        relative_name = None
+        try:
+            relative_name = normalize_relative_document_path(filename)
+        except HTTPException:
+            relative_name = None
+
+        candidate_roots = [SOURCE_PATH, ARCHIVE_PATH, DESTINATION_PATH]
+        for root in candidate_roots:
+            if relative_name is not None:
+                candidate = root / relative_name
+                if candidate.exists() and candidate.is_file():
+                    candidate.unlink()
+            if root == DESTINATION_PATH:
+                for nested in root.rglob(filename):
+                    if nested.is_file():
+                        nested.unlink()
+            elif root == SOURCE_PATH:
+                source_candidate = root / filename
+                if source_candidate.exists() and source_candidate.is_file():
+                    source_candidate.unlink()
+
+        for candidate in (
+            details.get("destination_path"),
+            details.get("archive_path"),
+            details.get("source_path"),
+        ):
+            if not candidate:
+                continue
+            try:
+                path = Path(str(candidate))
+                if path.exists() and path.is_file():
+                    path.unlink()
+            except (TypeError, ValueError, OSError):
+                continue
+
+        states.pop(filename, None)
+
+    if expired_files:
+        DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
+
+        jobs = read_job_store()
+        for job_id, job in list(jobs.items()):
+            if isinstance(job, dict) and job.get("filename") in expired_files:
+                jobs.pop(job_id, None)
+        JOB_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        JOB_STATUS_PATH.write_text(json.dumps(jobs, indent=2), encoding="utf-8")
+
+        audit = read_approval_audit()
+        entries = audit.get("entries", [])
+        audit["entries"] = [
+            entry for entry in entries if not isinstance(entry, dict) or entry.get("filename") not in expired_files
+        ]
+        APPROVAL_AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        APPROVAL_AUDIT_PATH.write_text(json.dumps(audit, indent=2), encoding="utf-8")
+
+    return expired_files
 
 
 def cached_analysis_result(filename: str, processing_path: Path) -> Optional[dict]:
@@ -306,6 +409,145 @@ def write_analysis_status(available: bool, message: Optional[str] = None, retry_
     )
 
 
+def read_approval_audit() -> dict:
+    if not APPROVAL_AUDIT_PATH.exists():
+        return {"entries": []}
+    try:
+        data = json.loads(APPROVAL_AUDIT_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("entries"), list):
+            return data
+        return {"entries": []}
+    except (OSError, json.JSONDecodeError):
+        return {"entries": []}
+
+
+def append_approval_audit(action: str, filename: str, actor: Optional[str], role: Optional[str], **details: object) -> dict:
+    audit = read_approval_audit()
+    entry = {
+        "action": action,
+        "filename": filename,
+        "actor": actor or "unknown",
+        "role": role or "unknown",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **details,
+    }
+    audit.setdefault("entries", []).append(entry)
+    APPROVAL_AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    APPROVAL_AUDIT_PATH.write_text(json.dumps(audit, indent=2), encoding="utf-8")
+    return entry
+
+
+def read_job_store() -> dict:
+    if not JOB_STATUS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(JOB_STATUS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def write_job_record(job_id: str, status: str, **details: object) -> None:
+    jobs = read_job_store()
+    job = jobs.get(job_id)
+    updated = {} if not isinstance(job, dict) else dict(job)
+    updated.update({"job_id": job_id, "status": status, **details})
+    jobs[job_id] = updated
+    JOB_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    JOB_STATUS_PATH.write_text(json.dumps(jobs, indent=2), encoding="utf-8")
+
+
+def create_job_record(filename: str, processing_id: str, route_details: dict, page_count: int) -> str:
+    job_id = uuid.uuid4().hex
+    job_timestamp = datetime.now(timezone.utc).isoformat()
+    write_job_record(
+        job_id,
+        "queued",
+        filename=filename,
+        processing_id=processing_id,
+        route=route_details.get("route"),
+        queue_status=route_details.get("queue_status"),
+        processing_strategy=route_details.get("processing_strategy"),
+        processing_profile=route_details.get("processing_profile"),
+        quality_score=route_details.get("quality_score"),
+        recommended_provider=route_details.get("recommended_provider"),
+        local_classification=route_details.get("local_classification"),
+        page_count=page_count,
+        retry_count=0,
+        created_at=job_timestamp,
+        updated_at=job_timestamp,
+    )
+    return job_id
+
+
+def summarize_jobs() -> dict:
+    jobs = read_job_store()
+    status_breakdown = {"queued": 0, "processing": 0, "ready": 0, "failed": 0}
+    status_names = {"queued", "processing", "ready", "failed"}
+    latency_total = 0.0
+    failure_count = 0
+    local_count = 0
+    ai_count = 0
+    job_rows: List[dict] = []
+
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        status = str(job.get("status", "unknown")).strip().lower()
+        if status in status_names:
+            status_breakdown[status] += 1
+
+        profile = job.get("processing_profile") if isinstance(job.get("processing_profile"), dict) else {}
+        latency = profile.get("median_latency_ms")
+        if isinstance(latency, (int, float)):
+            latency_total += float(latency)
+
+        strategy = str(job.get("processing_strategy", "")).strip().lower()
+        recommended_provider = str(job.get("recommended_provider", "")).strip().lower()
+        if strategy in {"local-rule-engine", "local-preprocessing"} or recommended_provider == "local":
+            local_count += 1
+        elif strategy in {"gemini-enrichment", "ocr-fallback"} or recommended_provider == "gemini":
+            ai_count += 1
+
+        if status == "failed":
+            failure_count += 1
+
+        classification = job.get("local_classification") if isinstance(job.get("local_classification"), dict) else {}
+        job_rows.append({
+            "job_id": job.get("job_id"),
+            "filename": job.get("filename"),
+            "status": status,
+            "route": job.get("route"),
+            "processing_strategy": job.get("processing_strategy"),
+            "queue_status": job.get("queue_status"),
+            "quality_score": job.get("quality_score"),
+            "recommended_provider": job.get("recommended_provider"),
+            "retry_count": job.get("retry_count", 0),
+            "created_at": job.get("created_at"),
+            "updated_at": job.get("updated_at"),
+            "confidence": classification.get("confidence"),
+            "destinee": classification.get("destinee"),
+            "intent": classification.get("intent"),
+        })
+
+    total_jobs = len(job_rows)
+    job_rows.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    summary = {
+        "total_jobs": total_jobs,
+        "queued": status_breakdown["queued"],
+        "processing": status_breakdown["processing"],
+        "ready": status_breakdown["ready"],
+        "failed": status_breakdown["failed"],
+        "status_breakdown": status_breakdown,
+        "average_latency_ms": round(latency_total / total_jobs, 2) if total_jobs else 0.0,
+        "failure_rate": round(failure_count / total_jobs, 4) if total_jobs else 0.0,
+        "local_resolution_rate": round(local_count / total_jobs, 4) if total_jobs else 0.0,
+        "ai_resolution_rate": round(ai_count / total_jobs, 4) if total_jobs else 0.0,
+        "jobs": job_rows,
+    }
+    return summary
+
+
 def extract_page_text(page: object) -> tuple[str, bool]:
     text = page.get_text()
     if text.strip():
@@ -335,6 +577,137 @@ def extract_page_text_with_ocr(page: object) -> tuple[str, bool]:
     if result.returncode != 0:
         return "", False
     return result.stdout.decode("utf-8", errors="replace"), True
+
+
+def infer_local_classification(page_texts: List[str]) -> dict:
+    """Infer likely intent and destinee using local text patterns before Gemini is consulted."""
+    text = "\n".join(page_texts).lower()
+    if not text.strip():
+        configured_destinees = read_config()
+        fallback_destinee = configured_destinees[0] if configured_destinees else "Unassigned"
+        return {
+            "intent": "unknown",
+            "destinee": fallback_destinee,
+            "confidence": 0.15,
+            "matched_terms": [],
+            "reason": "no readable text was extracted",
+        }
+
+    rule_map = {
+        "invoice": {
+            "keywords": ["invoice", "rechnung", "amount due", "vat", "mwst", "payment due", "zahllast"],
+            "destinees": ["Finance", "Accounting", "Billing"],
+        },
+        "tax": {
+            "keywords": ["tax", "steuer", "tax return", "finanzamt"],
+            "destinees": ["Finance", "Tax"],
+        },
+        "contract": {
+            "keywords": ["contract", "vertrag", "agreement", "parties"],
+            "destinees": ["Legal", "Contracts"],
+        },
+        "receipt": {
+            "keywords": ["receipt", "quittung", "kassenbon", "total"],
+            "destinees": ["Operations", "Finance"],
+        },
+        "letter": {
+            "keywords": ["letter", "brief", "dear", "hello"],
+            "destinees": ["Operations", "Legal"],
+        },
+    }
+
+    best_intent = "unknown"
+    best_destinee = "Unassigned"
+    best_confidence = 0.25
+    matched_terms: List[str] = []
+
+    configured_destinees = read_config()
+    preferred_destinees = {value.casefold(): value for value in configured_destinees}
+
+    for intent, rule in rule_map.items():
+        hits = [keyword for keyword in rule["keywords"] if keyword in text]
+        if not hits:
+            continue
+        for candidate in rule["destinees"]:
+            normalized = candidate.casefold()
+            if normalized in preferred_destinees:
+                best_destinee = preferred_destinees[normalized]
+                break
+        else:
+            best_destinee = configured_destinees[0] if configured_destinees else "Unassigned"
+        best_intent = intent
+        matched_terms = hits
+        best_confidence = 0.82 if len(hits) >= 2 else 0.68
+        break
+
+    if best_intent == "unknown":
+        best_destinee = configured_destinees[0] if configured_destinees else "Unassigned"
+        best_confidence = 0.35
+
+    return {
+        "intent": best_intent,
+        "destinee": best_destinee,
+        "confidence": round(best_confidence, 2),
+        "matched_terms": matched_terms,
+        "reason": f"matched local intent {best_intent}" if best_intent != "unknown" else "no decisive keyword match",
+    }
+
+
+def determine_document_route(page_texts: List[str], ocr_used: bool = False) -> dict:
+    """Choose a single, explicit processing strategy for readable, OCR, or AI-enriched documents."""
+    combined_text = "\n".join(page_texts)
+    readable = bool(combined_text.strip())
+    tokens = re.findall(r"\b\w+\b", combined_text)
+    word_count = len(tokens)
+    unique_words = len({token.casefold() for token in tokens if len(token) > 2})
+    text_density = min(1.0, len(combined_text) / 6000)
+    quality_score = min(1.0, max(0.05, text_density * 0.7 + (0.3 if not ocr_used else 0.15))) if readable else 0.0
+    looks_like_noise = word_count > 0 and unique_words <= 2 and re.search(r"\b(?:x|y|z|lorem|ipsum)\b", combined_text, re.IGNORECASE) is not None
+    local_classification = infer_local_classification(page_texts)
+
+    if not readable:
+        processing_strategy = "ocr-fallback"
+        route = "ocr-fallback"
+        queue_status = "awaiting_ocr"
+        recommended_provider = "gemini" if GEMINI_API_KEY else "local"
+        processing_profile = {
+            "provider": "tesseract",
+            "median_latency_ms": 2300,
+            "estimated_cost_usd": 0.0,
+            "benchmark_source": "local-ocr",
+        }
+    else:
+        route = "local-preprocessing"
+        queue_status = "ready_for_review"
+        if not ocr_used and (quality_score >= 0.25 or unique_words >= 4) and not looks_like_noise:
+            processing_strategy = "local-rule-engine"
+            recommended_provider = "local"
+            processing_profile = {
+                "provider": "local",
+                "median_latency_ms": 180,
+                "estimated_cost_usd": 0.0,
+                "benchmark_source": "local-rule-engine",
+            }
+        else:
+            processing_strategy = "gemini-enrichment"
+            recommended_provider = "gemini"
+            processing_profile = {
+                "provider": "gemini",
+                "median_latency_ms": 1800,
+                "estimated_cost_usd": 0.00015,
+                "benchmark_source": "gemini-enrichment",
+            }
+
+    return {
+        "readable": readable,
+        "route": route,
+        "queue_status": queue_status,
+        "processing_strategy": processing_strategy,
+        "local_classification": local_classification,
+        "quality_score": round(max(0.0, min(1.0, quality_score)), 2),
+        "recommended_provider": recommended_provider,
+        "processing_profile": processing_profile,
+    }
 
 
 def analyze_text(text: str, filename: str) -> dict:
@@ -490,6 +863,13 @@ def ensure_destinee_directories(destinees: List[str]) -> None:
         (DESTINATION_PATH / destinee).mkdir(exist_ok=True)
 
 
+class PrivateDocumentRequest(BaseModel):
+    """Request model for privacy retention scheduling."""
+
+    private: bool = True
+    delete_after_minutes: int = Field(default=60, ge=1, le=1440)
+
+
 def extract_layout_metadata(pdf: object) -> dict:
     """Extract stable positional clues without exposing the original PDF layout."""
     first_page = pdf[0] if len(pdf) else None
@@ -551,8 +931,42 @@ def update_classification_config(config: ClassificationConfig) -> Classification
     return response_for(config.destinees)
 
 
+@app.post("/api/documents/{filename:path}/private")
+def mark_document_private(filename: str, request: PrivateDocumentRequest) -> dict:
+    """Mark a document as private and schedule automatic deletion after the configured retention window."""
+    try:
+        relative_path = normalize_relative_document_path(filename)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    source_path = (SOURCE_PATH / relative_path).resolve()
+    destination_matches = list(DESTINATION_PATH.rglob(filename)) if DESTINATION_PATH.exists() else []
+    if not source_path.exists() and not destination_matches:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    delete_after = datetime.now(timezone.utc) + timedelta(minutes=request.delete_after_minutes)
+    document_details = read_document_states().get(filename, {})
+    if not isinstance(document_details, dict):
+        document_details = {}
+    document_details.update({
+        "private": bool(request.private),
+        "private_at": datetime.now(timezone.utc).isoformat(),
+        "delete_after": delete_after.isoformat(),
+        "source_path": str(source_path),
+        "destination_path": str(destination_matches[0]) if destination_matches else document_details.get("destination_path"),
+    })
+    write_document_state(filename, "private", **document_details)
+    return {
+        "status": "private",
+        "filename": filename,
+        "delete_after": delete_after.isoformat(),
+        "delete_after_minutes": request.delete_after_minutes,
+    }
+
+
 @app.post("/api/classification/scan")
 def scan_input_directory() -> dict:
+    cleanup_private_documents()
     if not SOURCE_PATH.exists() or not SOURCE_PATH.is_dir():
         raise HTTPException(status_code=503, detail="n8n input directory is unavailable")
     states = read_document_states()
@@ -866,8 +1280,76 @@ def dismiss_document(filename: str, request: DismissRequest) -> dict:
     }
 
 
+@app.get("/api/approval/audit")
+def get_approval_audit() -> dict:
+    """Return the persisted approval/audit history for user actions."""
+    return read_approval_audit()
+
+
+@app.get("/api/jobs/summary")
+def get_job_summary() -> dict:
+    """Return a minimal operational summary of the persisted job queue."""
+    return summarize_jobs()
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job_status(job_id: str) -> dict:
+    """Read the persisted status for a queued or processed preparation job."""
+    jobs = read_job_store()
+    job = jobs.get(job_id)
+    if not isinstance(job, dict):
+        raise HTTPException(status_code=404, detail="Job not found")
+    job.setdefault("retry_count", 0)
+    return job
+
+
+@app.post("/api/jobs/{job_id}/retry")
+def retry_job(job_id: str) -> dict:
+    """Reset a job to the queued state and increment its retry count for admin recovery."""
+    jobs = read_job_store()
+    job = jobs.get(job_id)
+    if not isinstance(job, dict):
+        raise HTTPException(status_code=404, detail="Job not found")
+    retry_count = int(job.get("retry_count", 0) or 0) + 1
+    job_timestamp = datetime.now(timezone.utc).isoformat()
+    job.update({
+        "status": "queued",
+        "retry_count": retry_count,
+        "updated_at": job_timestamp,
+    })
+    jobs[job_id] = job
+    JOB_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    JOB_STATUS_PATH.write_text(json.dumps(jobs, indent=2), encoding="utf-8")
+    return job
+
+
+@app.post("/api/jobs/{job_id}/reassign")
+def reassign_job(job_id: str, payload: dict) -> dict:
+    """Allow admin reassignment of a queued job to a different destinee or queue bucket."""
+    jobs = read_job_store()
+    job = jobs.get(job_id)
+    if not isinstance(job, dict):
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Assignment payload must be an object")
+    destinee = payload.get("destinee")
+    if destinee:
+        job["destinee"] = str(destinee)
+    queue_status = payload.get("queue_status")
+    if queue_status:
+        status = str(queue_status).strip().lower()
+        if status in {"queued", "processing", "ready", "failed"}:
+            job["status"] = status
+            job["queue_status"] = status
+    job["updated_at"] = datetime.now(timezone.utc).isoformat()
+    jobs[job_id] = job
+    JOB_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    JOB_STATUS_PATH.write_text(json.dumps(jobs, indent=2), encoding="utf-8")
+    return job
+
+
 @app.post("/api/documents/{filename:path}/prepare")
-def prepare_document(filename: str) -> dict:
+def prepare_document(filename: str, async_mode: bool = Query(False, alias="async")) -> dict:
     """Copy a source PDF into processing storage and return page metadata."""
     try:
         document_path = resolve_source_document(filename)
@@ -883,20 +1365,25 @@ def prepare_document(filename: str) -> dict:
         try:
             with fitz.open(processing_path) as pdf:
                 pages = []
+                page_ocr_used = False
                 for page_number, page in enumerate(pdf):
                     page_text, ocr_used = extract_page_text(page)
+                    page_ocr_used = page_ocr_used or ocr_used
                     pages.append(
                         {"page": page_number + 1, "text": page_text[:2000], "ocr_used": ocr_used}
                     )
                 page_count = len(pages)
+                route_details = determine_document_route([page["text"] for page in pages], page_ocr_used)
         except (OSError, ValueError, RuntimeError, fitz.FileDataError):
             pages = [{"page": 1, "text": "", "ocr_used": False}]
             page_count = 1
+            route_details = determine_document_route([""], False)
         write_document_state(
             filename,
             "in_review",
             processing_id=processing_id,
             sha256=calculate_file_hash(processing_path),
+            **route_details,
         )
     except OSError as exc:
         try:
@@ -907,7 +1394,7 @@ def prepare_document(filename: str) -> dict:
         raise HTTPException(status_code=422, detail="Unable to prepare PDF for processing") from exc
 
     relative_source_path = document_path.relative_to(SOURCE_PATH)
-    return {
+    response = {
         "processing_id": processing_id,
         "original_name": document_path.name,
         "source_path": relative_source_path.as_posix(),
@@ -916,8 +1403,27 @@ def prepare_document(filename: str) -> dict:
         "page_count": page_count,
         "pages": pages,
         "ocr_used": any(page["ocr_used"] for page in pages),
+        "readable": route_details["readable"],
+        "route": route_details["route"],
+        "queue_status": route_details["queue_status"],
+        "processing_strategy": route_details["processing_strategy"],
+        "local_classification": route_details["local_classification"],
+        "quality_score": route_details["quality_score"],
+        "recommended_provider": route_details["recommended_provider"],
+        "processing_profile": route_details["processing_profile"],
         "status": "in_review",
     }
+
+    if async_mode:
+        job_id = create_job_record(filename, processing_id, route_details, page_count)
+        async_payload = {**response, "job_id": job_id, "processing_id": processing_id, "status": "queued"}
+        return Response(
+            content=json.dumps(async_payload),
+            media_type="application/json",
+            status_code=202,
+        )
+
+    return response
 
 
 @app.post("/api/documents/{filename:path}/analyze")
@@ -1045,6 +1551,13 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         matching_destinee = request.destinee.strip()
         ensure_destinee_directories([matching_destinee])
 
+    role = (request.role or "").strip().lower()
+    actor = (request.actor or "").strip()
+    if role and role not in {"reviewer", "approver", "admin"}:
+        raise HTTPException(status_code=403, detail="Unsupported approval role")
+    if role and role != "approver" and role != "admin":
+        raise HTTPException(status_code=403, detail="Only approvers or admins can finalize documents")
+
     processing_path = (TEMP_PATH / "processing" / request.processing_id / "original.pdf").resolve()
     processing_root = (TEMP_PATH / "processing").resolve()
     if processing_path.parent.parent != processing_root or not processing_path.is_file():
@@ -1079,6 +1592,17 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
     except OSError as exc:
         raise HTTPException(status_code=500, detail="Unable to finalize document") from exc
 
+    entry = append_approval_audit(
+        "finalize",
+        filename,
+        actor or None,
+        role or None,
+        processing_id=request.processing_id,
+        destinee=matching_destinee,
+        destination_path=str(destination_file),
+        archive_path=str(archived_file),
+    )
+
     return {
         "status": "classified",
         "filename": output_filename,
@@ -1086,6 +1610,7 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         "destinee": matching_destinee,
         "destination_path": str(destination_file),
         "archive_path": str(archived_file),
+        "audit_entry": entry,
     }
 
 

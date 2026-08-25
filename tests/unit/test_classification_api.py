@@ -1,6 +1,8 @@
 """Focused tests for the n8n handoff and destinee configuration API."""
 
 import importlib
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -8,6 +10,8 @@ from fastapi.testclient import TestClient
 def load_api(monkeypatch, tmp_path):
     source = tmp_path / "source"
     destination = tmp_path / "destination"
+    archive = tmp_path / "archive"
+    dismissed = tmp_path / "dismissed"
     temp = tmp_path / "temp"
     config = tmp_path / "config.json"
     documents = tmp_path / "documents.json"
@@ -15,6 +19,8 @@ def load_api(monkeypatch, tmp_path):
     source.mkdir()
     monkeypatch.setenv("RAW_INPUT_PATH", str(source))
     monkeypatch.setenv("CLASSIFIED_OUTPUT_PATH", str(destination))
+    monkeypatch.setenv("PROCESSED_ARCHIVE_PATH", str(archive))
+    monkeypatch.setenv("DISMISSED_ARCHIVE_PATH", str(dismissed))
     monkeypatch.setenv("CLASSIFICATION_CONFIG_PATH", str(config))
     monkeypatch.setenv("DOCUMENTS_STATUS_PATH", str(documents))
     monkeypatch.setenv("ANALYSIS_STATUS_PATH", str(analysis_status))
@@ -55,6 +61,56 @@ def test_update_config_rejects_path_separator(monkeypatch, tmp_path):
     assert response.status_code == 422
 
 
+def test_configuration_interface_is_separate_from_work_interface(monkeypatch, tmp_path):
+    load_api(monkeypatch, tmp_path)
+    config_html = Path("frontend/config.html")
+    index_html = Path("frontend/index.html")
+
+    assert config_html.exists()
+    assert "destinee-form" in config_html.read_text(encoding="utf-8")
+    assert "app.js" not in config_html.read_text(encoding="utf-8")
+    assert "config.js" in index_html.read_text(encoding="utf-8")
+
+
+def test_mark_document_private_schedules_cleanup_and_removes_logs(monkeypatch, tmp_path):
+    main, source, destination = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+    (source / "invoice.pdf").write_bytes(b"prepared pdf")
+
+    response = client.post(
+        "/api/documents/invoice.pdf/private",
+        json={"private": True, "delete_after_minutes": 60},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "private"
+    assert main.read_document_states()["invoice.pdf"]["private"] is True
+
+    destination_dir = destination / "Finance"
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination_file = destination_dir / "invoice.pdf"
+    destination_file.write_bytes(b"prepared pdf")
+
+    main.write_document_state(
+        "invoice.pdf",
+        "private",
+        private=True,
+        source_path=str(source / "invoice.pdf"),
+        destination_path=str(destination_file),
+        delete_after=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+    )
+    main.APPROVAL_AUDIT_PATH.write_text('{"entries":[{"filename":"invoice.pdf","action":"finalize"}]}', encoding="utf-8")
+    main.JOB_STATUS_PATH.write_text('{"job-1": {"filename": "invoice.pdf", "status": "queued"}}', encoding="utf-8")
+
+    removed = main.cleanup_private_documents(datetime.now(timezone.utc))
+
+    assert "invoice.pdf" in removed
+    assert not (source / "invoice.pdf").exists()
+    assert not destination_file.exists()
+    assert main.read_approval_audit()["entries"] == []
+    assert "job-1" not in main.read_job_store()
+
+
 def test_scan_returns_completed_pdfs_only(monkeypatch, tmp_path):
     main, source, _ = load_api(monkeypatch, tmp_path)
     (source / "invoice.pdf").write_bytes(b"pdf")
@@ -89,6 +145,183 @@ def test_get_document_rejects_path_traversal(monkeypatch, tmp_path):
     assert response.status_code == 404
 
 
+def test_prepare_marks_readable_pdf_for_local_processing(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/invoice.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["readable"] is True
+    assert payload["route"] == "local-preprocessing"
+    assert payload["queue_status"] == "ready_for_review"
+    assert payload["processing_strategy"] == "local-rule-engine"
+    assert main.read_document_states()["invoice.pdf"]["processing_strategy"] == "local-rule-engine"
+
+
+def test_prepare_marks_blank_pdf_for_ocr_fallback(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "scan-001.pdf"
+    with __import__("pymupdf").open() as pdf:
+        pdf.new_page()
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/scan-001.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["readable"] is False
+    assert payload["route"] == "ocr-fallback"
+    assert payload["queue_status"] == "awaiting_ocr"
+    assert payload["processing_strategy"] == "ocr-fallback"
+    assert main.read_document_states()["scan-001.pdf"]["processing_strategy"] == "ocr-fallback"
+
+
+def test_prepare_reports_quality_and_provider_recommendation(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice due for tax and payment")
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/invoice.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert 0.0 <= payload["quality_score"] <= 1.0
+    assert payload["recommended_provider"] in {"local", "gemini"}
+    assert payload["route"] in {"local-preprocessing", "ocr-fallback"}
+
+
+def test_prepare_uses_local_rule_engine_for_invoice_intent(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+    client.post("/api/classification/config", json={"destinees": ["Finance", "Legal", "Operations"]})
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT payment")
+        pdf.save(document)
+
+    response = client.post("/api/documents/invoice.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["processing_strategy"] == "local-rule-engine"
+    assert payload["local_classification"]["intent"] == "invoice"
+    assert payload["local_classification"]["destinee"] == "Finance"
+    assert payload["local_classification"]["confidence"] >= 0.75
+
+
+def test_prepare_routes_low_quality_text_through_gemini_enrichment(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "low-quality.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "x x x x x x x x x x x x")
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/low-quality.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["readable"] is True
+    assert payload["processing_strategy"] == "gemini-enrichment"
+    assert payload["recommended_provider"] == "gemini"
+    assert main.read_document_states()["low-quality.pdf"]["processing_strategy"] == "gemini-enrichment"
+
+
+def test_prepare_reports_benchmark_metadata_for_each_processing_strategy(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+
+    readable_pdf = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(readable_pdf)
+
+    blank_pdf = source / "scan.pdf"
+    with __import__("pymupdf").open() as pdf:
+        pdf.new_page()
+        pdf.save(blank_pdf)
+
+    readable = TestClient(main.app).post("/api/documents/invoice.pdf/prepare").json()
+    blank = TestClient(main.app).post("/api/documents/scan.pdf/prepare").json()
+
+    assert readable["processing_profile"]["provider"] == "local"
+    assert readable["processing_profile"]["estimated_cost_usd"] == 0.0
+    assert readable["processing_profile"]["median_latency_ms"] >= 100
+    assert blank["processing_profile"]["provider"] == "tesseract"
+    assert blank["processing_profile"]["estimated_cost_usd"] == 0.0
+
+
+def test_prepare_async_returns_queued_job_and_persists_status(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/invoice.pdf/prepare?async=true")
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["status"] == "queued"
+    assert payload["job_id"]
+    job = TestClient(main.app).get(f"/api/jobs/{payload['job_id']}").json()
+    assert job["filename"] == "invoice.pdf"
+    assert job["status"] in {"queued", "processing", "ready", "failed"}
+
+
+def test_queue_summary_and_retry_flow_exposes_hardening_status(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    client = TestClient(main.app)
+    queued = client.post("/api/documents/invoice.pdf/prepare?async=true").json()
+    summary = client.get("/api/jobs/summary").json()
+
+    assert summary["total_jobs"] >= 1
+    assert summary["queued"] >= 1
+    retry_response = client.post(f"/api/jobs/{queued['job_id']}/retry")
+    assert retry_response.status_code == 200
+    retried_job = client.get(f"/api/jobs/{queued['job_id']}").json()
+    assert retried_job["status"] == "queued"
+    assert retried_job["retry_count"] >= 1
+
+
+def test_admin_dashboard_summary_exposes_health_metrics(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    client = TestClient(main.app)
+    client.post("/api/documents/invoice.pdf/prepare?async=true")
+    summary = client.get("/api/jobs/summary").json()
+
+    assert summary["status_breakdown"]["queued"] >= 1
+    assert "average_latency_ms" in summary
+    assert "failure_rate" in summary
+    assert "local_resolution_rate" in summary
+    assert "ai_resolution_rate" in summary
+    assert summary["jobs"][0]["filename"] == "invoice.pdf"
+    assert "quality_score" in summary["jobs"][0]
+
+
 def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path):
     main, source, destination = load_api(monkeypatch, tmp_path)
     document = source / "invoice.pdf"
@@ -106,10 +339,34 @@ def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path)
     assert (destination / "Destinee A" / "invoice.pdf").read_bytes() == b"prepared pdf"
 
 
+def test_approval_roles_are_enforced_and_audited(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (source / "invoice.pdf").write_bytes(b"prepared pdf")
+    client = TestClient(main.app)
+    client.post("/api/classification/config", json={"destinees": ["Destinee A"]})
+    prepared = client.post("/api/documents/invoice.pdf/prepare").json()
+
+    blocked = client.post(
+        "/api/documents/invoice.pdf/finalize",
+        json={"processing_id": prepared["processing_id"], "destinee": "Destinee A", "actor": "reviewer-1", "role": "reviewer"},
+    )
+    assert blocked.status_code == 403
+
+    allowed = client.post(
+        "/api/documents/invoice.pdf/finalize",
+        json={"processing_id": prepared["processing_id"], "destinee": "Destinee A", "actor": "approver-1", "role": "approver"},
+    )
+    assert allowed.status_code == 200
+
+    audit = client.get("/api/approval/audit").json()
+    assert any(entry["action"] == "finalize" and entry["actor"] == "approver-1" for entry in audit["entries"])
+
+
 def test_finalize_rejects_unknown_destinee(monkeypatch, tmp_path):
     main, source, _ = load_api(monkeypatch, tmp_path)
     (source / "invoice.pdf").write_bytes(b"prepared pdf")
     client = TestClient(main.app)
+    client.post("/api/classification/config", json={"destinees": ["Destinee A"]})
     prepared = client.post("/api/documents/invoice.pdf/prepare").json()
 
     response = client.post(
