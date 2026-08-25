@@ -3,3 +3,4 @@
 /data
 docker.env
 __pycache__/
+.coverage
