@@ -78,7 +78,23 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
     └──────────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 Component Dependencies
+### 1.2 Source and Destination Abstraction
+
+The product boundary is intentionally broader than a single document source or output folder. The pipeline should operate as a backend-neutral intake and routing platform with a stable internal classification workflow.
+
+**Primary design goal:** separate the document logic from the storage implementation.
+
+**Supported patterns by priority:**
+- Local NAS folders and mounted root directories
+- SMB / Windows network shares
+- Google Drive service-account folders
+- Microsoft 365 / SharePoint libraries
+- Email attachment inboxes
+- Webhook or API-based ingestion
+
+The key architectural principle is that the classifier only needs a document stream, a destination decision, and a set of route metadata. It must not depend on one provider-specific API or host path layout.
+
+### 1.3 Component Dependencies
 
 | Component | Purpose | Technology | Resource Requirement |
 |-----------|---------|-----------|----------------------|
@@ -87,7 +103,8 @@ A budget-friendly, configurable document processing pipeline with AI-assisted UI
 | PDF Engine | Document Manipulation | PyMuPDF | Native binary (~50MB) |
 | OCR Engine | Text Extraction (Optional) | Tesseract OCR | ~300MB (if installed) |
 | AI/Vision API | Classification & Splitting | Cloud (Gemini/Claude) | API credential |
-| Storage Backend | Document Source/Destination | Pluggable (Google Drive, NAS, SharePoint) | Depends on backend |
+| Source Backend | Inbound document ingestion | Pluggable (Google Drive, NAS, SMB, Email, API) | Depends on backend |
+| Destination Backend | Output routing and archive | Pluggable (NAS, Google Drive, SharePoint, Email, API) | Depends on backend |
 | Backend Manager | Abstract Storage Layer | Python (ABC pattern) | ~10MB code |
 
 ---

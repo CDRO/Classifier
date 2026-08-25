@@ -132,6 +132,22 @@ DSM Web Interface → Control Panel → Network:
 
 ---
 
+## 1.4 Strategic Source/Destination Roadmap
+
+The platform should not be optimized around a single provider. The next implementation focus is the pluggable intake and routing boundary that supports multiple source and destination classes without changing the review pipeline.
+
+**Priority provider classes:**
+- Local NAS / mounted directories
+- SMB network shares
+- Google Drive service-account folders
+- Microsoft 365 / SharePoint libraries
+- Email attachment inboxes
+- Webhook/API ingestion
+
+The local NAS path remains the first default for production, but the architecture must make provider-specific code optional and isolated behind small backend adapters.
+
+---
+
 ## 3. Installation Guide
 
 ### 3.1 Prerequisites

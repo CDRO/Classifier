@@ -71,6 +71,7 @@ class ClassificationConfig(BaseModel):
     """User-editable first-level classification configuration."""
 
     destinees: List[str] = Field(min_length=0, max_length=50)
+    source_roots: List[str] = Field(default_factory=list, min_length=0, max_length=20)
 
     @field_validator("destinees")
     @classmethod
@@ -86,12 +87,23 @@ class ClassificationConfig(BaseModel):
             raise ValueError("Destinee names must be unique")
         return cleaned
 
+    @field_validator("source_roots")
+    @classmethod
+    def validate_source_roots(cls, values: List[str]) -> List[str]:
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("Source roots cannot be empty")
+        if len({value.casefold() for value in cleaned}) != len(cleaned):
+            raise ValueError("Source roots must be unique")
+        return cleaned
+
 
 class ClassificationResponse(ClassificationConfig):
     """Configuration response including immutable runtime paths."""
 
     input_path: str
     output_root: str
+    source_roots: List[str]
 
 
 class FinalizeRequest(BaseModel):
@@ -293,6 +305,21 @@ def read_config() -> List[str]:
         return list(DEFAULT_DESTINEES)
 
 
+def read_source_roots() -> List[Path]:
+    default_roots = [SOURCE_PATH]
+    if not CONFIG_PATH.exists():
+        return default_roots
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        config = ClassificationConfig.model_validate(data)
+        configured = [Path(value).expanduser() for value in config.source_roots]
+        if configured:
+            return configured
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    return default_roots
+
+
 def read_document_states() -> dict:
     if not DOCUMENTS_PATH.exists():
         return {}
@@ -417,13 +444,12 @@ def normalize_relative_document_path(filename: str) -> Path:
 
 def resolve_source_document(filename: str) -> Path:
     relative_path = normalize_relative_document_path(filename)
-    document_path = (SOURCE_PATH / relative_path).resolve()
-    source_root = SOURCE_PATH.resolve()
-    if not document_path.is_relative_to(source_root):
-        raise HTTPException(status_code=404, detail="Document not found")
-    if not document_path.is_file() or document_path.suffix.casefold() != ".pdf":
-        raise HTTPException(status_code=404, detail="Document not found")
-    return document_path
+    for source_root in read_source_roots():
+        source_root_resolved = source_root.resolve()
+        document_path = (source_root_resolved / relative_path).resolve()
+        if document_path.is_relative_to(source_root_resolved) and document_path.is_file() and document_path.suffix.casefold() == ".pdf":
+            return document_path
+    raise HTTPException(status_code=404, detail="Document not found")
 
 
 def relative_archive_path(path: Path) -> Path:
@@ -891,10 +917,12 @@ def analyze_with_gemini(text: str, filename: str, pdf: object = None, layout: Op
 
 def response_for(destinees: List[str]) -> ClassificationResponse:
     ensure_destinee_directories(destinees)
+    source_roots = [str(path) for path in read_source_roots()]
     return ClassificationResponse(
         destinees=destinees,
-        input_path=str(SOURCE_PATH),
+        input_path=str(source_roots[0]) if source_roots else str(SOURCE_PATH),
         output_root=f"{DESTINATION_PATH}/",
+        source_roots=source_roots,
     )
 
 
@@ -938,10 +966,12 @@ def extract_layout_metadata(pdf: object) -> dict:
 
 @app.get("/api/ingestion/status")
 def ingestion_status() -> dict:
+    roots = read_source_roots()
     return {
         "provider": "n8n",
-        "input_path": str(SOURCE_PATH),
-        "ready": SOURCE_PATH.exists() and SOURCE_PATH.is_dir(),
+        "input_path": str(roots[0]) if roots else str(SOURCE_PATH),
+        "source_roots": [str(path) for path in roots],
+        "ready": any(path.exists() and path.is_dir() for path in roots),
     }
 
 
@@ -1019,7 +1049,8 @@ def mark_document_private(filename: str, request: PrivateDocumentRequest) -> dic
 @app.post("/api/classification/scan")
 def scan_input_directory() -> dict:
     cleanup_private_documents()
-    if not SOURCE_PATH.exists() or not SOURCE_PATH.is_dir():
+    source_roots = read_source_roots()
+    if not any(root.exists() and root.is_dir() for root in source_roots):
         raise HTTPException(status_code=503, detail="n8n input directory is unavailable")
     states = read_document_states()
     classified_hashes = {
@@ -1034,14 +1065,22 @@ def scan_input_directory() -> dict:
             if archived_file.is_file() and not any(part.startswith(".") for part in archived_file.relative_to(ARCHIVE_PATH).parts):
                 classified_hashes.setdefault(calculate_file_hash(archived_file), archived_file.relative_to(ARCHIVE_PATH).as_posix())
     pdfs = []
-    for path in SOURCE_PATH.rglob("*.pdf"):
-        if not path.is_file():
+    seen_paths = set()
+    for source_root in source_roots:
+        if not source_root.exists() or not source_root.is_dir():
             continue
-        relative_path = path.relative_to(SOURCE_PATH)
-        if any(part.startswith(".") for part in relative_path.parts):
-            continue
-        pdfs.append((relative_path, path))
-    for relative_path, path in pdfs:
+        for path in source_root.rglob("*.pdf"):
+            if not path.is_file():
+                continue
+            relative_path = path.relative_to(source_root)
+            if any(part.startswith(".") for part in relative_path.parts):
+                continue
+            key = str(relative_path.as_posix()) + "@" + str(source_root)
+            if key in seen_paths:
+                continue
+            seen_paths.add(key)
+            pdfs.append((relative_path, path, source_root))
+    for relative_path, path, _source_root in pdfs:
         relative_name = relative_path.as_posix()
         file_hash = calculate_file_hash(path)
         if relative_name not in states:
@@ -1064,7 +1103,7 @@ def scan_input_directory() -> dict:
             "sha256": states.get(relative_name, {}).get("sha256"),
             "duplicate_of": states.get(relative_name, {}).get("duplicate_of"),
         }
-        for relative_path, path in pdfs
+        for relative_path, path, _source_root in pdfs
         for relative_name in [relative_path.as_posix()]
     ]
     files.sort(key=lambda file: file["name"].casefold())

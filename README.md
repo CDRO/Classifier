@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is the initial implementation of the document processing pipeline: **n8n ingestion + local NAS classification + configurable destinees**.
+This project is evolving from a single-provider workflow into a general document intake and routing platform: **source-neutral ingestion + destination-neutral routing + local classification**. The current implementation still uses local NAS and the Google Drive backend as concrete examples, but the long-term architecture is intentionally pluggable so we can support multiple inputs and destinations without redesigning the classifier.
 
 ## Development Status
 
@@ -10,7 +10,9 @@ This is the initial implementation of the document processing pipeline: **n8n in
 - ✅ **Phase 1:** Documentation complete (SYSTEM_SPECIFICATION.md, WORKFLOW_TESTING_DEBUGGING.md, DEPLOYMENT_MANAGEMENT_MANUAL.md, AGENTS.md)
 - ✅ **Phase 2:** n8n ingestion boundary and local classified-output architecture defined
 - ✅ **Phase 3:** GitHub workflow mandate + 10-cycle code review integrated
+- ✅ **Phase 4:** Google Drive hardening and env-gated smoke validation are complete
 - ✅ **Native web interface and local classification workflow:** completed for the current release
+- 🔜 **Strategic sprint:** source/destination abstraction and the next 10 workflow slices are now prioritized over provider-specific deepening
 
 ## Project Structure
 
@@ -108,7 +110,15 @@ black --check src/ tests/
 black src/ tests/
 ```
 
-## Architecture: StorageBackend ABC
+## Architecture: Source and Destination Abstraction
+
+The `StorageBackend` abstract base class remains the core contract for storage providers, but in the next roadmap we treat it as the foundation for a broader pipeline model:
+
+- Source backends: local folders, NAS shares, Google Drive, SMB, email inboxes, and webhook/APIs
+- Destination backends: local folders, NAS folders, Google Drive, SharePoint, email targets, and archive stores
+- Shared lifecycle: ingest → classify → review → route → archive → cleanup
+
+This keeps the classifier independent from a single storage destination or provider. The architecture is intentionally backend-neutral so the business logic does not have to be reworked every time a new data source or output target is added.
 
 The `StorageBackend` abstract base class defines a unified interface for all storage providers:
 
@@ -140,6 +150,23 @@ The temporary `/data/temp/processing/<processing_id>/` workspace is removed afte
 - One output folder per configured destinee
 - No destinees are preconfigured; administrators add them in the web interface.
 - Destinees can be edited in the native browser interface
+
+### Strategic Roadmap: Next 10 Slices
+
+The next work is not a broad Google expansion. The immediate priority is to make the system backend-agnostic and ready for practical operational sources and destinations beyond a single local folder.
+
+1. Multi-source root configuration
+2. Multi-destination routing configuration
+3. Local NAS and SMB source adapters
+4. Destinee-aware export planner
+5. Source/destination backend registry and config schema
+6. Storage health checks and validation UI
+7. Archive policy enforcement for source/destination backends
+8. Email inbox ingestion adapter
+9. Microsoft 365 / SharePoint adapter
+10. Webhook/API ingestion and outbound routing
+
+Detailed milestone definitions are maintained in [docs/guides/NEXT_10_MILESTONES.md](docs/guides/NEXT_10_MILESTONES.md).
 
 ## Private Retention Guarantee
 

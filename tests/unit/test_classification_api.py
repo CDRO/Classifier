@@ -68,6 +68,43 @@ def test_update_config_creates_destinee_directories(monkeypatch, tmp_path):
     assert (destination / "Shared").is_dir()
 
 
+def test_configuration_accepts_multiple_source_roots(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/classification/config",
+        json={
+            "destinees": ["Finance"],
+            "source_roots": [str(tmp_path / "source-a"), str(tmp_path / "source-b")],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["source_roots"] == [str(tmp_path / "source-a"), str(tmp_path / "source-b")]
+
+
+def test_scan_input_directory_uses_configured_source_roots(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    source_a = tmp_path / "source-a"
+    source_b = tmp_path / "source-b"
+    source_a.mkdir()
+    source_b.mkdir()
+    (source_a / "invoice.pdf").write_bytes(b"pdf-a")
+    (source_b / "receipt.pdf").write_bytes(b"pdf-b")
+
+    response = TestClient(main.app).post(
+        "/api/classification/config",
+        json={"destinees": ["Finance"], "source_roots": [str(source_a), str(source_b)]},
+    )
+    assert response.status_code == 200
+
+    scan_response = TestClient(main.app).post("/api/classification/scan")
+    assert scan_response.status_code == 200
+    names = {file["name"] for file in scan_response.json()["files"]}
+    assert {"invoice.pdf", "receipt.pdf"}.issubset(names)
+
+
 def test_update_config_rejects_path_separator(monkeypatch, tmp_path):
     main, _, _ = load_api(monkeypatch, tmp_path)
     response = TestClient(main.app).post(
