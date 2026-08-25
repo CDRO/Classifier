@@ -238,6 +238,26 @@ class TestGoogleDriveBackend:
         info = await google_drive_backend.get_storage_info()
         assert info["backend_type"] == "google_drive"
 
+    @pytest.mark.asyncio
+    async def test_google_drive_authenticate_builds_real_service_when_available(self, monkeypatch):
+        """✓ The backend should build a real Google Drive service when the optional SDK is installed."""
+        backend = GoogleDriveBackend()
+        credentials = {
+            "type": "service_account",
+            "project_id": "real-project",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+            "client_email": "classifier@real-project.iam.gserviceaccount.com",
+        }
+        fake_service = object()
+
+        monkeypatch.setattr("src.storage.google_drive._build_service", lambda service_account_config: fake_service)
+
+        result = await backend.authenticate(credentials)
+
+        assert result is True
+        assert backend.service is fake_service
+        assert backend.account_email == credentials["client_email"]
+
 
 # ============================================================================
 # Local NAS Backend Tests
