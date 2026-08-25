@@ -108,6 +108,8 @@ def test_prepare_marks_readable_pdf_for_local_processing(monkeypatch, tmp_path):
     assert payload["readable"] is True
     assert payload["route"] == "local-preprocessing"
     assert payload["queue_status"] == "ready_for_review"
+    assert payload["processing_strategy"] == "local-rule-engine"
+    assert main.read_document_states()["invoice.pdf"]["processing_strategy"] == "local-rule-engine"
 
 
 def test_prepare_marks_blank_pdf_for_ocr_fallback(monkeypatch, tmp_path):
@@ -124,6 +126,87 @@ def test_prepare_marks_blank_pdf_for_ocr_fallback(monkeypatch, tmp_path):
     assert payload["readable"] is False
     assert payload["route"] == "ocr-fallback"
     assert payload["queue_status"] == "awaiting_ocr"
+    assert payload["processing_strategy"] == "ocr-fallback"
+    assert main.read_document_states()["scan-001.pdf"]["processing_strategy"] == "ocr-fallback"
+
+
+def test_prepare_reports_quality_and_provider_recommendation(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice due for tax and payment")
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/invoice.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert 0.0 <= payload["quality_score"] <= 1.0
+    assert payload["recommended_provider"] in {"local", "gemini"}
+    assert payload["route"] in {"local-preprocessing", "ocr-fallback"}
+
+
+def test_prepare_uses_local_rule_engine_for_invoice_intent(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+    client.post("/api/classification/config", json={"destinees": ["Finance", "Legal", "Operations"]})
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT payment")
+        pdf.save(document)
+
+    response = client.post("/api/documents/invoice.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["processing_strategy"] == "local-rule-engine"
+    assert payload["local_classification"]["intent"] == "invoice"
+    assert payload["local_classification"]["destinee"] == "Finance"
+    assert payload["local_classification"]["confidence"] >= 0.75
+
+
+def test_prepare_routes_low_quality_text_through_gemini_enrichment(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "low-quality.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "x x x x x x x x x x x x")
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/low-quality.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["readable"] is True
+    assert payload["processing_strategy"] == "gemini-enrichment"
+    assert payload["recommended_provider"] == "gemini"
+    assert main.read_document_states()["low-quality.pdf"]["processing_strategy"] == "gemini-enrichment"
+
+
+def test_prepare_reports_benchmark_metadata_for_each_processing_strategy(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+
+    readable_pdf = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(readable_pdf)
+
+    blank_pdf = source / "scan.pdf"
+    with __import__("pymupdf").open() as pdf:
+        pdf.new_page()
+        pdf.save(blank_pdf)
+
+    readable = TestClient(main.app).post("/api/documents/invoice.pdf/prepare").json()
+    blank = TestClient(main.app).post("/api/documents/scan.pdf/prepare").json()
+
+    assert readable["processing_profile"]["provider"] == "local"
+    assert readable["processing_profile"]["estimated_cost_usd"] == 0.0
+    assert readable["processing_profile"]["median_latency_ms"] >= 100
+    assert blank["processing_profile"]["provider"] == "tesseract"
+    assert blank["processing_profile"]["estimated_cost_usd"] == 0.0
 
 
 def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path):

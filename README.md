@@ -283,6 +283,18 @@ See [AGENTS.md Section 2.0](AGENTS.md#20-github-workflow-mandate-before-starting
     - Add malformed-PDF, boundary, duplicate, and path-traversal tests.
     - Measure OCR and 50-page processing against NAS targets.
 
+### Routing benchmark baseline (Issue #5)
+
+The classifier now keeps a routing profile for each path so the decision thresholds are explicit and reviewable:
+
+| Route | Provider | Median latency target | Estimated cost | Routing rule |
+|---|---|---:|---:|---|
+| readable local PDF | local | ~180 ms | $0.00 | native text is present and not noisy |
+| scanned / blank PDF | tesseract | ~2300 ms | $0.00 | no readable text; OCR fallback is required |
+| low-quality readable text | gemini | ~1800 ms | ~$0.00015 per request | local text is weak or noisy; AI enrichment is cheaper than manual correction |
+
+This profile is surfaced through the `processing_profile` metadata returned by the prepare API and used as the default threshold matrix for the local-vs-AI routing engine. The benchmark values are intentionally conservative baselines for the classifier logic; they should be re-measured against production PDFs and the NAS hardware profile before release tuning.
+
 ### Short-term (Tier 2: API Endpoints + UI)
 - [ ] FastAPI endpoints for ingestion status and classification configuration
 - [ ] Connect the native JavaScript UI to the classification configuration API

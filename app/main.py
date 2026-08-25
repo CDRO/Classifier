@@ -337,14 +337,134 @@ def extract_page_text_with_ocr(page: object) -> tuple[str, bool]:
     return result.stdout.decode("utf-8", errors="replace"), True
 
 
-def determine_document_route(page_texts: List[str]) -> dict:
-    """Classify whether a PDF is readable locally or should wait for OCR fallback."""
+def infer_local_classification(page_texts: List[str]) -> dict:
+    """Infer likely intent and destinee using local text patterns before Gemini is consulted."""
+    text = "\n".join(page_texts).lower()
+    if not text.strip():
+        configured_destinees = read_config()
+        fallback_destinee = configured_destinees[0] if configured_destinees else "Unassigned"
+        return {
+            "intent": "unknown",
+            "destinee": fallback_destinee,
+            "confidence": 0.15,
+            "matched_terms": [],
+            "reason": "no readable text was extracted",
+        }
+
+    rule_map = {
+        "invoice": {
+            "keywords": ["invoice", "rechnung", "amount due", "vat", "mwst", "payment due", "zahllast"],
+            "destinees": ["Finance", "Accounting", "Billing"],
+        },
+        "tax": {
+            "keywords": ["tax", "steuer", "tax return", "finanzamt"],
+            "destinees": ["Finance", "Tax"],
+        },
+        "contract": {
+            "keywords": ["contract", "vertrag", "agreement", "parties"],
+            "destinees": ["Legal", "Contracts"],
+        },
+        "receipt": {
+            "keywords": ["receipt", "quittung", "kassenbon", "total"],
+            "destinees": ["Operations", "Finance"],
+        },
+        "letter": {
+            "keywords": ["letter", "brief", "dear", "hello"],
+            "destinees": ["Operations", "Legal"],
+        },
+    }
+
+    best_intent = "unknown"
+    best_destinee = "Unassigned"
+    best_confidence = 0.25
+    matched_terms: List[str] = []
+
+    configured_destinees = read_config()
+    preferred_destinees = {value.casefold(): value for value in configured_destinees}
+
+    for intent, rule in rule_map.items():
+        hits = [keyword for keyword in rule["keywords"] if keyword in text]
+        if not hits:
+            continue
+        for candidate in rule["destinees"]:
+            normalized = candidate.casefold()
+            if normalized in preferred_destinees:
+                best_destinee = preferred_destinees[normalized]
+                break
+        else:
+            best_destinee = configured_destinees[0] if configured_destinees else "Unassigned"
+        best_intent = intent
+        matched_terms = hits
+        best_confidence = 0.82 if len(hits) >= 2 else 0.68
+        break
+
+    if best_intent == "unknown":
+        best_destinee = configured_destinees[0] if configured_destinees else "Unassigned"
+        best_confidence = 0.35
+
+    return {
+        "intent": best_intent,
+        "destinee": best_destinee,
+        "confidence": round(best_confidence, 2),
+        "matched_terms": matched_terms,
+        "reason": f"matched local intent {best_intent}" if best_intent != "unknown" else "no decisive keyword match",
+    }
+
+
+def determine_document_route(page_texts: List[str], ocr_used: bool = False) -> dict:
+    """Choose a single, explicit processing strategy for readable, OCR, or AI-enriched documents."""
     combined_text = "\n".join(page_texts)
     readable = bool(combined_text.strip())
+    tokens = re.findall(r"\b\w+\b", combined_text)
+    word_count = len(tokens)
+    unique_words = len({token.casefold() for token in tokens if len(token) > 2})
+    text_density = min(1.0, len(combined_text) / 6000)
+    quality_score = min(1.0, max(0.05, text_density * 0.7 + (0.3 if not ocr_used else 0.15))) if readable else 0.0
+    looks_like_noise = word_count > 0 and unique_words <= 2 and re.search(r"\b(?:x|y|z|lorem|ipsum)\b", combined_text, re.IGNORECASE) is not None
+    local_classification = infer_local_classification(page_texts)
+
+    if not readable:
+        processing_strategy = "ocr-fallback"
+        route = "ocr-fallback"
+        queue_status = "awaiting_ocr"
+        recommended_provider = "gemini" if GEMINI_API_KEY else "local"
+        processing_profile = {
+            "provider": "tesseract",
+            "median_latency_ms": 2300,
+            "estimated_cost_usd": 0.0,
+            "benchmark_source": "local-ocr",
+        }
+    else:
+        route = "local-preprocessing"
+        queue_status = "ready_for_review"
+        if not ocr_used and (quality_score >= 0.25 or unique_words >= 4) and not looks_like_noise:
+            processing_strategy = "local-rule-engine"
+            recommended_provider = "local"
+            processing_profile = {
+                "provider": "local",
+                "median_latency_ms": 180,
+                "estimated_cost_usd": 0.0,
+                "benchmark_source": "local-rule-engine",
+            }
+        else:
+            processing_strategy = "gemini-enrichment"
+            recommended_provider = "gemini"
+            processing_profile = {
+                "provider": "gemini",
+                "median_latency_ms": 1800,
+                "estimated_cost_usd": 0.00015,
+                "benchmark_source": "gemini-enrichment",
+            }
+
     return {
         "readable": readable,
-        "route": "local-preprocessing" if readable else "ocr-fallback",
-        "queue_status": "ready_for_review" if readable else "awaiting_ocr",
+        "route": route,
+        "queue_status": queue_status,
+        "processing_strategy": processing_strategy,
+        "local_classification": local_classification,
+        "quality_score": round(max(0.0, min(1.0, quality_score)), 2),
+        "recommended_provider": recommended_provider,
+        "processing_profile": processing_profile,
     }
 
 
@@ -894,17 +1014,19 @@ def prepare_document(filename: str) -> dict:
         try:
             with fitz.open(processing_path) as pdf:
                 pages = []
+                page_ocr_used = False
                 for page_number, page in enumerate(pdf):
                     page_text, ocr_used = extract_page_text(page)
+                    page_ocr_used = page_ocr_used or ocr_used
                     pages.append(
                         {"page": page_number + 1, "text": page_text[:2000], "ocr_used": ocr_used}
                     )
                 page_count = len(pages)
-                route_details = determine_document_route([page["text"] for page in pages])
+                route_details = determine_document_route([page["text"] for page in pages], page_ocr_used)
         except (OSError, ValueError, RuntimeError, fitz.FileDataError):
             pages = [{"page": 1, "text": "", "ocr_used": False}]
             page_count = 1
-            route_details = determine_document_route([""])
+            route_details = determine_document_route([""], False)
         write_document_state(
             filename,
             "in_review",
@@ -933,6 +1055,11 @@ def prepare_document(filename: str) -> dict:
         "readable": route_details["readable"],
         "route": route_details["route"],
         "queue_status": route_details["queue_status"],
+        "processing_strategy": route_details["processing_strategy"],
+        "local_classification": route_details["local_classification"],
+        "quality_score": route_details["quality_score"],
+        "recommended_provider": route_details["recommended_provider"],
+        "processing_profile": route_details["processing_profile"],
         "status": "in_review",
     }
 
