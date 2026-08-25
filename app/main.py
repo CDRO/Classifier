@@ -337,6 +337,17 @@ def extract_page_text_with_ocr(page: object) -> tuple[str, bool]:
     return result.stdout.decode("utf-8", errors="replace"), True
 
 
+def determine_document_route(page_texts: List[str]) -> dict:
+    """Classify whether a PDF is readable locally or should wait for OCR fallback."""
+    combined_text = "\n".join(page_texts)
+    readable = bool(combined_text.strip())
+    return {
+        "readable": readable,
+        "route": "local-preprocessing" if readable else "ocr-fallback",
+        "queue_status": "ready_for_review" if readable else "awaiting_ocr",
+    }
+
+
 def analyze_text(text: str, filename: str) -> dict:
     normalized_text = text.casefold()
     language_scores = {
@@ -889,14 +900,17 @@ def prepare_document(filename: str) -> dict:
                         {"page": page_number + 1, "text": page_text[:2000], "ocr_used": ocr_used}
                     )
                 page_count = len(pages)
+                route_details = determine_document_route([page["text"] for page in pages])
         except (OSError, ValueError, RuntimeError, fitz.FileDataError):
             pages = [{"page": 1, "text": "", "ocr_used": False}]
             page_count = 1
+            route_details = determine_document_route([""])
         write_document_state(
             filename,
             "in_review",
             processing_id=processing_id,
             sha256=calculate_file_hash(processing_path),
+            **route_details,
         )
     except OSError as exc:
         try:
@@ -916,6 +930,9 @@ def prepare_document(filename: str) -> dict:
         "page_count": page_count,
         "pages": pages,
         "ocr_used": any(page["ocr_used"] for page in pages),
+        "readable": route_details["readable"],
+        "route": route_details["route"],
+        "queue_status": route_details["queue_status"],
         "status": "in_review",
     }
 

@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 def load_api(monkeypatch, tmp_path):
     source = tmp_path / "source"
     destination = tmp_path / "destination"
+    archive = tmp_path / "archive"
+    dismissed = tmp_path / "dismissed"
     temp = tmp_path / "temp"
     config = tmp_path / "config.json"
     documents = tmp_path / "documents.json"
@@ -15,6 +17,8 @@ def load_api(monkeypatch, tmp_path):
     source.mkdir()
     monkeypatch.setenv("RAW_INPUT_PATH", str(source))
     monkeypatch.setenv("CLASSIFIED_OUTPUT_PATH", str(destination))
+    monkeypatch.setenv("PROCESSED_ARCHIVE_PATH", str(archive))
+    monkeypatch.setenv("DISMISSED_ARCHIVE_PATH", str(dismissed))
     monkeypatch.setenv("CLASSIFICATION_CONFIG_PATH", str(config))
     monkeypatch.setenv("DOCUMENTS_STATUS_PATH", str(documents))
     monkeypatch.setenv("ANALYSIS_STATUS_PATH", str(analysis_status))
@@ -89,6 +93,39 @@ def test_get_document_rejects_path_traversal(monkeypatch, tmp_path):
     assert response.status_code == 404
 
 
+def test_prepare_marks_readable_pdf_for_local_processing(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/invoice.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["readable"] is True
+    assert payload["route"] == "local-preprocessing"
+    assert payload["queue_status"] == "ready_for_review"
+
+
+def test_prepare_marks_blank_pdf_for_ocr_fallback(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "scan-001.pdf"
+    with __import__("pymupdf").open() as pdf:
+        pdf.new_page()
+        pdf.save(document)
+
+    response = TestClient(main.app).post("/api/documents/scan-001.pdf/prepare")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["readable"] is False
+    assert payload["route"] == "ocr-fallback"
+    assert payload["queue_status"] == "awaiting_ocr"
+
+
 def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path):
     main, source, destination = load_api(monkeypatch, tmp_path)
     document = source / "invoice.pdf"
@@ -110,6 +147,7 @@ def test_finalize_rejects_unknown_destinee(monkeypatch, tmp_path):
     main, source, _ = load_api(monkeypatch, tmp_path)
     (source / "invoice.pdf").write_bytes(b"prepared pdf")
     client = TestClient(main.app)
+    client.post("/api/classification/config", json={"destinees": ["Destinee A"]})
     prepared = client.post("/api/documents/invoice.pdf/prepare").json()
 
     response = client.post(
