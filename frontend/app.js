@@ -210,6 +210,15 @@ function getQueueStateBadge(state) {
   return `<span class="queue-badge queue-badge-${tone}">${label}</span>`;
 }
 
+function getQueueStateLabel(state) {
+  const normalized = normalizeQueueState(state);
+  if (normalized === "ready") return "Ready";
+  if (normalized === "processing") return "Preparing";
+  if (normalized === "failed") return "Failed";
+  if (normalized === "queued") return "Queued";
+  return "Queued";
+}
+
 function getStatusLabel(status) {
   return String(status || "received").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -471,7 +480,9 @@ async function inspectDocument(filename) {
       queuePosition: getVisibleInboxFiles().findIndex((entry) => entry.name === filename) + 1 || null,
       filename: source.basename,
       ready: !selectedDocument.duplicateOf,
-      blocked: Boolean(selectedDocument.duplicateOf)
+      blocked: Boolean(selectedDocument.duplicateOf),
+      queueStatus: queuedDocument?.queue_status || preparedDocument.queue_status || preparedDocument.status || "received",
+      routeTarget: queuedDocument?.destinee || null
     });
     reviewFilename.value = preparedDocument.original_name;
     void prefetchQueuedAnalyses(filename);
@@ -743,12 +754,15 @@ function setReviewStatus(message, variant = "neutral") {
   reviewStatus.className = `count review-status review-status-${variant}`;
 }
 
-function updateReviewSummary({ duplicate = false, blocked = false, ready = false, queuePosition = null, filename = null, destinee = null }) {
+function updateReviewSummary({ duplicate = false, blocked = false, ready = false, queuePosition = null, filename = null, destinee = null, queueStatus = null, routeTarget = null }) {
   if (!reviewSummary) return;
 
   const chips = [];
   if (queuePosition !== null) {
     chips.push(`<span class="summary-chip summary-chip-neutral">Queue #${queuePosition}</span>`);
+  }
+  if (queueStatus) {
+    chips.push(`<span class="summary-chip ${normalizeQueueState(queueStatus) === "failed" ? "summary-chip-warning" : normalizeQueueState(queueStatus) === "ready" ? "summary-chip-safe" : "summary-chip-neutral"}">Queue: ${getQueueStateLabel(queueStatus)}</span>`);
   }
   if (duplicate) {
     chips.push('<span class="summary-chip summary-chip-warning">Duplicate</span>');
@@ -758,10 +772,11 @@ function updateReviewSummary({ duplicate = false, blocked = false, ready = false
   if (filename) {
     chips.push(`<span class="summary-chip summary-chip-neutral">${escapeHtml(filename)}</span>`);
   }
-  if (destinee) {
-    chips.push(`<span class="summary-chip summary-chip-safe">${escapeHtml(destinee)}</span>`);
+  const explicitRoute = routeTarget || destinee;
+  if (explicitRoute) {
+    chips.push(`<span class="summary-chip summary-chip-safe">Route: ${escapeHtml(explicitRoute)}</span>`);
   } else if (ready) {
-    chips.push('<span class="summary-chip summary-chip-safe">Ready</span>');
+    chips.push('<span class="summary-chip summary-chip-safe">Ready to route</span>');
   } else if (blocked) {
     chips.push('<span class="summary-chip summary-chip-warning">Needs attention</span>');
   }
@@ -920,7 +935,9 @@ function updateFinalizeWarnings() {
       queuePosition: hasSelectedDocument ? getVisibleInboxFiles().findIndex((entry) => entry.name === selectedDocument.filename) + 1 || null : null,
       filename: hasSelectedDocument ? formatSourcePath(selectedDocument.filename).basename : null,
       blocked: Boolean(selectedDocument?.duplicateOf),
-      ready: hasSelectedDocument && !selectedDocument?.duplicateOf
+      ready: hasSelectedDocument && !selectedDocument?.duplicateOf,
+      queueStatus: selectedDocument ? (inboxFiles.find((file) => file.name === selectedDocument.filename)?.queue_status || inboxFiles.find((file) => file.name === selectedDocument.filename)?.status || "received") : null,
+      routeTarget: reviewDestinee.value || null
     });
     return;
   }
@@ -935,7 +952,9 @@ function updateFinalizeWarnings() {
       filename: formatSourcePath(selectedDocument.filename).basename,
       blocked: true,
       ready: false,
-      destinee: reviewDestinee.value
+      destinee: reviewDestinee.value,
+      queueStatus: selectedDocument ? (inboxFiles.find((file) => file.name === selectedDocument.filename)?.queue_status || inboxFiles.find((file) => file.name === selectedDocument.filename)?.status || "received") : null,
+      routeTarget: reviewDestinee.value || null
     });
     return;
   }
@@ -950,7 +969,9 @@ function updateFinalizeWarnings() {
       filename: formatSourcePath(selectedDocument.filename).basename,
       blocked: true,
       ready: false,
-      destinee: reviewDestinee.value
+      destinee: reviewDestinee.value,
+      queueStatus: selectedDocument ? (inboxFiles.find((file) => file.name === selectedDocument.filename)?.queue_status || inboxFiles.find((file) => file.name === selectedDocument.filename)?.status || "received") : null,
+      routeTarget: reviewDestinee.value || null
     });
     return;
   }
@@ -964,7 +985,9 @@ function updateFinalizeWarnings() {
     filename: formatSourcePath(selectedDocument.filename).basename,
     ready: true,
     blocked: false,
-    destinee: reviewDestinee.value
+    destinee: reviewDestinee.value,
+    queueStatus: selectedDocument ? (inboxFiles.find((file) => file.name === selectedDocument.filename)?.queue_status || inboxFiles.find((file) => file.name === selectedDocument.filename)?.status || "received") : null,
+    routeTarget: reviewDestinee.value || null
   });
 }
 
