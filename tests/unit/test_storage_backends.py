@@ -195,14 +195,15 @@ class TestGoogleDriveBackend:
 
         with patch("src.storage.google_drive._build_service", side_effect=ValueError(f"bad key: {secret}")):
             with caplog.at_level(logging.ERROR):
-                with pytest.raises(ValueError, match="bad key"):
+                with pytest.raises(ValueError, match="bad key") as exc_info:
                     await google_drive_backend.authenticate(valid_google_drive_credentials)
 
         log_output = caplog.text
         assert "REAL_SECRET_VALUE" not in log_output
         assert "PRIVATE KEY" not in log_output
         assert "[REDACTED" in log_output
-    
+        assert "REAL_SECRET_VALUE" not in str(exc_info.value)
+
     @pytest.mark.asyncio
     async def test_list_folders_before_auth_fails(self, google_drive_backend):
         """✓ Listing folders without authentication raises error."""

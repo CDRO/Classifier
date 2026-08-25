@@ -242,7 +242,8 @@ class GoogleDriveBackend(StorageBackend):
                 sanitized_error,
                 extra={"error": sanitized_error, "credentials_type": credentials_type}
             )
-            raise
+            sanitized_exception = e.__class__(sanitized_error)
+            raise sanitized_exception from e
     
     async def list_folders(self) -> List[Dict[str, str]]:
         """
