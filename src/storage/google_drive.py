@@ -25,7 +25,8 @@ Cost:
 import json
 import logging
 import re
-from typing import BinaryIO, Dict, List, Optional
+from pathlib import Path
+from typing import BinaryIO, Dict, List, Optional, Union
 from datetime import datetime
 from io import BytesIO
 
@@ -67,6 +68,38 @@ def _redact_sensitive_content(value: object) -> object:
         redacted,
     )
     return redacted
+
+
+def _load_service_account_config(credentials: Union[str, Dict[str, str], None]) -> Dict[str, str]:
+    """Normalize service-account input from a JSON path or a direct credential dict."""
+    if credentials is None:
+        raise ValueError("Google Drive credentials are required")
+
+    if isinstance(credentials, str):
+        path_text = credentials.strip()
+        if not path_text:
+            raise ValueError("Service account file path cannot be empty")
+
+        path = Path(path_text)
+        if not path.exists():
+            raise FileNotFoundError(f"Service account JSON file not found: {path}")
+
+        try:
+            raw = path.read_text(encoding="utf-8")
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Malformed service account JSON in {path}: {exc.msg}") from exc
+
+        if not isinstance(payload, dict):
+            raise ValueError(f"Service account file {path} must contain a JSON object")
+        _validate_service_account_config(payload)
+        return payload
+
+    if isinstance(credentials, dict):
+        _validate_service_account_config(credentials)
+        return credentials
+
+    raise TypeError("Google Drive credentials must be a dict or a JSON file path")
 
 
 def _validate_service_account_config(service_account_config: Dict[str, str]) -> None:
@@ -134,55 +167,65 @@ class GoogleDriveBackend(StorageBackend):
     6. Upload JSON key to NAS: /volume1/docker/classifier/config/gd-service-account.json
     """
     
-    def __init__(self):
-        """Initialize Google Drive backend (no authentication yet)."""
+    def __init__(self, service_account_path: Optional[str] = None):
+        """Initialize Google Drive backend, optionally from a configured JSON file path."""
         self.service = None
         self.credentials = None
         self.account_email = None
-        
-    async def authenticate(self, credentials: Dict[str, str]) -> bool:
+        self.service_account_path = service_account_path.strip() if isinstance(service_account_path, str) and service_account_path.strip() else None
+
+    async def authenticate(self, credentials: Optional[Union[str, Dict[str, str]]] = None) -> bool:
         """
         Authenticate with Google Drive using service account credentials.
-        
+
         Args:
-            credentials: Service account JSON key (as dict)
-        
+            credentials: Service account JSON as a dict or a path to a JSON file.
+
         Returns:
             True if authentication succeeded
-        
+
         Raises:
             ValueError: If credentials invalid or missing required fields
             ConnectionError: If Google API unreachable
         """
+        normalized_credentials = None
         try:
-            _validate_service_account_config(credentials)
+            if credentials is None and self.service_account_path:
+                credentials = self.service_account_path
 
-            service = _build_service(credentials)
+            normalized_credentials = _load_service_account_config(credentials)
+
+            service = _build_service(normalized_credentials)
             if service is None:
                 logger.warning(
                     "Google Drive SDK not available; using lightweight stub service",
-                    extra={"account": credentials.get("client_email")},
+                    extra={"account": normalized_credentials.get("client_email")},
                 )
                 service = object()
             self.service = service
-            self.credentials = credentials
-            self.account_email = credentials.get("client_email")
+            self.credentials = normalized_credentials
+            self.account_email = normalized_credentials.get("client_email")
 
             logger.info(
                 "Google Drive backend authenticated",
                 extra={
                     "account": self.account_email,
-                    "project": credentials.get("project_id")
+                    "project": normalized_credentials.get("project_id")
                 }
             )
             return True
 
         except Exception as e:
             sanitized_error = _redact_sensitive_content(str(e))
+            credentials_type = None
+            if isinstance(normalized_credentials, dict):
+                credentials_type = normalized_credentials.get("type")
+            elif isinstance(credentials, dict):
+                credentials_type = credentials.get("type")
             logger.error(
                 "Google Drive authentication failed: %s",
                 sanitized_error,
-                extra={"error": sanitized_error, "credentials_type": credentials.get("type")}
+                extra={"error": sanitized_error, "credentials_type": credentials_type}
             )
             raise
     

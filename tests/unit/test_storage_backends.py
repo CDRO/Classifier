@@ -321,6 +321,37 @@ class TestGoogleDriveBackend:
         assert backend.service is fake_service
         assert backend.account_email == credentials["client_email"]
 
+    @pytest.mark.asyncio
+    async def test_google_drive_authenticate_loads_credentials_from_file_path(self, tmp_path):
+        """✓ A service-account JSON file path is accepted and normalized before authentication."""
+        credentials = {
+            "type": "service_account",
+            "project_id": "file-loaded-project",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+            "client_email": "classifier@file-loaded-project.iam.gserviceaccount.com",
+        }
+        path = tmp_path / "gd-service-account.json"
+        path.write_text(__import__("json").dumps(credentials), encoding="utf-8")
+
+        backend = GoogleDriveBackend(service_account_path=str(path))
+        with patch("src.storage.google_drive._build_service", return_value=object()) as mocked_build:
+            result = await backend.authenticate(str(path))
+
+        assert result is True
+        assert backend.credentials == credentials
+        mocked_build.assert_called_once_with(credentials)
+
+    @pytest.mark.asyncio
+    async def test_google_drive_authenticate_rejects_malformed_file_credentials(self, tmp_path):
+        """✓ A malformed JSON file fails fast instead of silently succeeding with bad config."""
+        path = tmp_path / "broken-gd-service-account.json"
+        path.write_text('{"type": "service_account", "private_key": "broken"}', encoding="utf-8")
+
+        backend = GoogleDriveBackend(service_account_path=str(path))
+
+        with pytest.raises(ValueError, match="private_key|Missing required credential field|Malformed private_key"):
+            await backend.authenticate(str(path))
+
 
 # ============================================================================
 # Local NAS Backend Tests
