@@ -24,6 +24,7 @@ Cost:
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import BinaryIO, Dict, List, Optional, Union
@@ -173,6 +174,16 @@ class GoogleDriveBackend(StorageBackend):
         self.credentials = None
         self.account_email = None
         self.service_account_path = service_account_path.strip() if isinstance(service_account_path, str) and service_account_path.strip() else None
+
+    @classmethod
+    def from_environment(cls, env: Optional[Dict[str, str]] = None):
+        """Create a backend from a service-account file path if one is configured in the environment."""
+        values = env or dict(os.environ)
+        for key in ("GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH", "GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE"):
+            configured_path = values.get(key)
+            if configured_path and configured_path.strip():
+                return cls(service_account_path=configured_path)
+        return cls()
 
     async def authenticate(self, credentials: Optional[Union[str, Dict[str, str]]] = None) -> bool:
         """

@@ -352,6 +352,39 @@ class TestGoogleDriveBackend:
         with pytest.raises(ValueError, match="private_key|Missing required credential field|Malformed private_key"):
             await backend.authenticate(str(path))
 
+    @pytest.mark.asyncio
+    async def test_google_drive_smoke_validation_is_guarded_by_env_path(self, monkeypatch, tmp_path):
+        """✓ Real Google Drive smoke validation only runs when a service-account file is configured."""
+        env_path = tmp_path / "smoke-gd-service-account.json"
+        credentials = {
+            "type": "service_account",
+            "project_id": "smoke-project",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+            "client_email": "smoke@smoke-project.iam.gserviceaccount.com",
+        }
+        env_path.write_text(__import__("json").dumps(credentials), encoding="utf-8")
+
+        monkeypatch.setenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH", str(env_path))
+        backend = GoogleDriveBackend.from_environment()
+
+        with patch("src.storage.google_drive._build_service", return_value=object()) as mocked_build:
+            result = await backend.authenticate()
+
+        assert result is True
+        assert backend.service is not None
+        assert backend.account_email == credentials["client_email"]
+        mocked_build.assert_called_once_with(credentials)
+
+    @pytest.mark.asyncio
+    async def test_google_drive_smoke_validation_skips_when_not_configured(self, monkeypatch):
+        """✓ No configured Google Drive service-account path means the smoke test is skipped cleanly."""
+        monkeypatch.delenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH", raising=False)
+        monkeypatch.delenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", raising=False)
+
+        backend = GoogleDriveBackend.from_environment()
+        assert backend.service_account_path is None
+        pytest.skip("Real Google Drive smoke validation is not configured for this environment")
+
 
 # ============================================================================
 # Local NAS Backend Tests
