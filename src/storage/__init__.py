@@ -16,8 +16,10 @@ without code changes, following the CAVEMAN principle of Minimize (minimize
 code changes) and Agility (easy to adapt to new backends).
 """
 
+import asyncio
 import re
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import BinaryIO, List, Dict, Optional, Type, Any
 from datetime import datetime
 
@@ -191,6 +193,20 @@ class StorageBackendManager:
     """Simple registry for pluggable storage providers and local fallback."""
 
     _registry: Dict[str, Type[StorageBackend]] = {}
+    _catalog: Dict[str, Dict[str, Any]] = {
+        "local_nas": {
+            "name": "local_nas",
+            "category": "source",
+            "description": "Local NAS or mounted directory source/destination for in-house document workflows.",
+            "aliases": ["local-nas", "local nas", "localnas"],
+        },
+        "google_drive": {
+            "name": "google_drive",
+            "category": "destination",
+            "description": "Google Drive destination backend for cloud-based document exports.",
+            "aliases": ["google-drive", "google drive", "googledrive"],
+        },
+    }
 
     @staticmethod
     def normalize_backend_name(name: str) -> str:
@@ -224,6 +240,62 @@ class StorageBackendManager:
         if not isinstance(backend_cls, type):
             raise TypeError("Storage backend class must be a class object")
         cls._registry[normalized] = backend_cls
+        cls._catalog.setdefault(normalized, {"name": normalized, "category": "source", "description": "Registered custom storage backend."})
+
+    @classmethod
+    def backend_catalog(cls) -> List[Dict[str, Any]]:
+        catalog: List[Dict[str, Any]] = []
+        for name in sorted(cls._registry):
+            metadata = cls._catalog.get(name, {"name": name, "category": "source", "description": "Registered storage backend."})
+            catalog.append({
+                "name": metadata.get("name", name),
+                "category": metadata.get("category", "source"),
+                "description": metadata.get("description", "Registered storage backend."),
+                "aliases": metadata.get("aliases", []),
+            })
+        return catalog
+
+    @classmethod
+    def validate_backend(cls, name: str, credentials: Optional[Dict[str, Any]] = None, category: Optional[str] = None) -> Dict[str, Any]:
+        normalized = cls.normalize_backend_name(name)
+        if normalized not in cls._registry:
+            cls.register_backend(normalized, cls._resolve_backend(normalized))
+        backend_cls = cls._registry[normalized]
+        backend = backend_cls()
+        effective_credentials = dict(credentials or {})
+        effective_category = (category or cls._catalog.get(normalized, {}).get("category") or "source").strip().lower()
+        if effective_category not in {"source", "destination"}:
+            effective_category = "source"
+
+        try:
+            auth_result = backend.authenticate(effective_credentials)
+            if hasattr(auth_result, "__await__"):
+                auth_result = asyncio.run(auth_result)
+            if not auth_result:
+                return {"status": "error", "backend": normalized, "category": effective_category, "message": "Authentication failed", "path": None}
+            base_path = getattr(backend, "base_path", None)
+            raw_path = effective_credentials.get("path")
+            if base_path is not None:
+                resolved_path = str(Path(str(base_path)).resolve())
+            elif raw_path is not None:
+                resolved_path = str(Path(str(raw_path)).expanduser().resolve())
+            else:
+                resolved_path = None
+            return {
+                "status": "ok",
+                "backend": normalized,
+                "category": effective_category,
+                "message": "Authentication successful",
+                "path": resolved_path,
+            }
+        except Exception as exc:  # pragma: no cover - defensive validation path
+            return {
+                "status": "error",
+                "backend": normalized,
+                "category": effective_category,
+                "message": str(exc),
+                "path": effective_credentials.get("path"),
+            }
 
     def get_backend(self, name: str) -> StorageBackend:
         normalized = self.normalize_backend_name(name)

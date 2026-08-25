@@ -679,6 +679,28 @@ def test_finalize_respects_configured_route_override_and_default_fallback(monkey
     assert (destination / "Legal" / "legal.pdf").read_bytes() == b"legal pdf"
 
 
+def test_finalize_writes_to_destinee_root_not_source_subfolder(monkeypatch, tmp_path):
+    main, source, destination = load_api(monkeypatch, tmp_path)
+    nested_source = source / "nested"
+    nested_source.mkdir()
+    document = nested_source / "invoice.pdf"
+    document.write_bytes(b"nested pdf")
+
+    client = TestClient(main.app)
+    client.post("/api/classification/config", json={"destinees": ["Finance"], "source_roots": [str(source)]})
+    prepared = client.post("/api/documents/nested/invoice.pdf/prepare").json()
+
+    response = client.post(
+        "/api/documents/nested/invoice.pdf/finalize",
+        json={"processing_id": prepared["processing_id"], "destinee": "Finance"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["destination_path"] == str(destination / "Finance" / "invoice.pdf")
+    assert (destination / "Finance" / "invoice.pdf").read_bytes() == b"nested pdf"
+    assert not (destination / "Finance" / "nested" / "invoice.pdf").exists()
+
+
 def test_approval_roles_are_enforced_and_audited(monkeypatch, tmp_path):
     main, source, _ = load_api(monkeypatch, tmp_path)
     (source / "invoice.pdf").write_bytes(b"prepared pdf")

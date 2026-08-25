@@ -1884,9 +1884,8 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
     if processing_path.parent.parent != processing_root or not processing_path.is_file():
         raise HTTPException(status_code=404, detail="Prepared document not found")
 
-    relative_path = Path(filename)
-    output_filename = request.output_filename or relative_path.name
-    destination_directory = Path(route["root_path"]) / relative_path.parent
+    output_filename = request.output_filename or Path(filename).name
+    destination_directory = Path(route["root_path"]).resolve()
     destination_file = destination_directory / output_filename
     archived_file = relative_archive_path(document_path)
     try:
