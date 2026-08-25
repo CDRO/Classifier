@@ -339,6 +339,10 @@ def create_job_record(filename: str, processing_id: str, route_details: dict, pa
         route=route_details.get("route"),
         queue_status=route_details.get("queue_status"),
         processing_strategy=route_details.get("processing_strategy"),
+        processing_profile=route_details.get("processing_profile"),
+        quality_score=route_details.get("quality_score"),
+        recommended_provider=route_details.get("recommended_provider"),
+        local_classification=route_details.get("local_classification"),
         page_count=page_count,
         retry_count=0,
         created_at=job_timestamp,
@@ -349,15 +353,70 @@ def create_job_record(filename: str, processing_id: str, route_details: dict, pa
 
 def summarize_jobs() -> dict:
     jobs = read_job_store()
-    counts = {"total_jobs": 0, "queued": 0, "processing": 0, "ready": 0, "failed": 0}
+    status_breakdown = {"queued": 0, "processing": 0, "ready": 0, "failed": 0}
+    status_names = {"queued", "processing", "ready", "failed"}
+    latency_total = 0.0
+    failure_count = 0
+    local_count = 0
+    ai_count = 0
+    job_rows: List[dict] = []
+
     for job in jobs.values():
         if not isinstance(job, dict):
             continue
-        counts["total_jobs"] += 1
         status = str(job.get("status", "unknown")).strip().lower()
-        if status in counts:
-            counts[status] += 1
-    return counts
+        if status in status_names:
+            status_breakdown[status] += 1
+
+        profile = job.get("processing_profile") if isinstance(job.get("processing_profile"), dict) else {}
+        latency = profile.get("median_latency_ms")
+        if isinstance(latency, (int, float)):
+            latency_total += float(latency)
+
+        strategy = str(job.get("processing_strategy", "")).strip().lower()
+        recommended_provider = str(job.get("recommended_provider", "")).strip().lower()
+        if strategy in {"local-rule-engine", "local-preprocessing"} or recommended_provider == "local":
+            local_count += 1
+        elif strategy in {"gemini-enrichment", "ocr-fallback"} or recommended_provider == "gemini":
+            ai_count += 1
+
+        if status == "failed":
+            failure_count += 1
+
+        classification = job.get("local_classification") if isinstance(job.get("local_classification"), dict) else {}
+        job_rows.append({
+            "job_id": job.get("job_id"),
+            "filename": job.get("filename"),
+            "status": status,
+            "route": job.get("route"),
+            "processing_strategy": job.get("processing_strategy"),
+            "queue_status": job.get("queue_status"),
+            "quality_score": job.get("quality_score"),
+            "recommended_provider": job.get("recommended_provider"),
+            "retry_count": job.get("retry_count", 0),
+            "created_at": job.get("created_at"),
+            "updated_at": job.get("updated_at"),
+            "confidence": classification.get("confidence"),
+            "destinee": classification.get("destinee"),
+            "intent": classification.get("intent"),
+        })
+
+    total_jobs = len(job_rows)
+    job_rows.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    summary = {
+        "total_jobs": total_jobs,
+        "queued": status_breakdown["queued"],
+        "processing": status_breakdown["processing"],
+        "ready": status_breakdown["ready"],
+        "failed": status_breakdown["failed"],
+        "status_breakdown": status_breakdown,
+        "average_latency_ms": round(latency_total / total_jobs, 2) if total_jobs else 0.0,
+        "failure_rate": round(failure_count / total_jobs, 4) if total_jobs else 0.0,
+        "local_resolution_rate": round(local_count / total_jobs, 4) if total_jobs else 0.0,
+        "ai_resolution_rate": round(ai_count / total_jobs, 4) if total_jobs else 0.0,
+        "jobs": job_rows,
+    }
+    return summary
 
 
 def extract_page_text(page: object) -> tuple[str, bool]:
@@ -1082,6 +1141,31 @@ def retry_job(job_id: str) -> dict:
         "retry_count": retry_count,
         "updated_at": job_timestamp,
     })
+    jobs[job_id] = job
+    JOB_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    JOB_STATUS_PATH.write_text(json.dumps(jobs, indent=2), encoding="utf-8")
+    return job
+
+
+@app.post("/api/jobs/{job_id}/reassign")
+def reassign_job(job_id: str, payload: dict) -> dict:
+    """Allow admin reassignment of a queued job to a different destinee or queue bucket."""
+    jobs = read_job_store()
+    job = jobs.get(job_id)
+    if not isinstance(job, dict):
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Assignment payload must be an object")
+    destinee = payload.get("destinee")
+    if destinee:
+        job["destinee"] = str(destinee)
+    queue_status = payload.get("queue_status")
+    if queue_status:
+        status = str(queue_status).strip().lower()
+        if status in {"queued", "processing", "ready", "failed"}:
+            job["status"] = status
+            job["queue_status"] = status
+    job["updated_at"] = datetime.now(timezone.utc).isoformat()
     jobs[job_id] = job
     JOB_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     JOB_STATUS_PATH.write_text(json.dumps(jobs, indent=2), encoding="utf-8")

@@ -249,6 +249,27 @@ def test_queue_summary_and_retry_flow_exposes_hardening_status(monkeypatch, tmp_
     assert retried_job["retry_count"] >= 1
 
 
+def test_admin_dashboard_summary_exposes_health_metrics(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    client = TestClient(main.app)
+    client.post("/api/documents/invoice.pdf/prepare?async=true")
+    summary = client.get("/api/jobs/summary").json()
+
+    assert summary["status_breakdown"]["queued"] >= 1
+    assert "average_latency_ms" in summary
+    assert "failure_rate" in summary
+    assert "local_resolution_rate" in summary
+    assert "ai_resolution_rate" in summary
+    assert summary["jobs"][0]["filename"] == "invoice.pdf"
+    assert "quality_score" in summary["jobs"][0]
+
+
 def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path):
     main, source, destination = load_api(monkeypatch, tmp_path)
     document = source / "invoice.pdf"
