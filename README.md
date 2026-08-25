@@ -187,11 +187,10 @@ The temporary `/data/temp/processing/<processing_id>/` workspace is removed afte
 The next release is intentionally narrow and focused on queueing and the user-facing review flow. This keeps the project practical without forcing a provider-specific implementation path.
 
 #### v3.0.0: Queuing and UI updates
-1. Multi-source root configuration
-2. Background prewarm queue for pending PDFs
-3. Readiness state in the review UI (queued, preparing, ready, failed)
-4. Suggested filename and metadata visibility before full review clicks
-5. UI refinements that keep the default source path stable while new roots are added
+1. Background prewarm queue for pending PDFs
+2. Readiness state in the review UI (queued, preparing, ready, failed)
+3. Suggested filename and metadata visibility before full review clicks
+4. UI refinements that keep the default source path stable and make the active route explicit without broad multi-source expansion
 
 #### Later, if needed
 1. Storage health checks and validation UI
