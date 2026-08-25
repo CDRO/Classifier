@@ -12,7 +12,8 @@ This project is evolving from a single-provider workflow into a general document
 - ✅ **Phase 3:** GitHub workflow mandate + 10-cycle code review integrated
 - ✅ **Phase 4:** Google Drive hardening and env-gated smoke validation are complete
 - ✅ **Native web interface and local classification workflow:** completed for the current release
-- 🔜 **Strategic sprint:** source/destination abstraction and the next 10 workflow slices are now prioritized over provider-specific deepening
+- ✅ **Storage backend health validation slice:** backend registry metadata and validation helpers are in place for source/destination health checks
+- 🔜 **Strategic sprint:** source/destination abstraction and the next 10 workflow slices continue to be prioritized over provider-specific deepening
 
 ## Project Structure
 
@@ -160,7 +161,7 @@ The next work is not a broad Google expansion. The immediate priority is to make
 3. Local NAS and SMB source adapters
 4. Destinee-aware export planner
 5. Source/destination backend registry and config schema
-6. Storage health checks and validation UI
+6. Storage health checks and validation UI ✅
 7. Archive policy enforcement for source/destination backends
 8. Email inbox ingestion adapter
 9. Microsoft 365 / SharePoint adapter

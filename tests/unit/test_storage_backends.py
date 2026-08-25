@@ -755,6 +755,24 @@ class TestStorageBackendManager:
 
         assert isinstance(backend, GoogleDriveBackend)
 
+    def test_manager_catalog_lists_backend_metadata(self):
+        manager = StorageBackendManager()
+        catalog = manager.backend_catalog()
+
+        names = {entry["name"] for entry in catalog}
+        assert {"local_nas", "google_drive"}.issubset(names)
+        assert all(entry["category"] in {"source", "destination"} for entry in catalog)
+        assert all("description" in entry for entry in catalog)
+
+    def test_manager_validate_backend_reports_local_nas_status(self, temp_nas_path):
+        manager = StorageBackendManager()
+
+        result = manager.validate_backend("local_nas", {"path": temp_nas_path, "check_permissions": False})
+
+        assert result["status"] == "ok"
+        assert result["backend"] == "local_nas"
+        assert result["path"] == str(Path(temp_nas_path).resolve())
+
     def test_manager_normalizes_common_backend_aliases(self):
         manager = StorageBackendManager()
 
