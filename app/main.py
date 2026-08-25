@@ -726,9 +726,20 @@ def summarize_jobs() -> dict:
     for job in jobs.values():
         if not isinstance(job, dict):
             continue
-        status = str(job.get("status", "unknown")).strip().lower()
-        if status in status_names:
-            status_breakdown[status] += 1
+        queue_status = str(job.get("queue_status", "")).strip().lower()
+        status = str(job.get("status", queue_status or "unknown")).strip().lower()
+
+        mapped_status = {
+            "ready_for_review": "ready",
+            "ready": "ready",
+            "awaiting_ocr": "queued",
+            "queued": "queued",
+            "processing": "processing",
+            "failed": "failed",
+        }.get(queue_status or status, status)
+        if mapped_status in status_names:
+            status_breakdown[mapped_status] += 1
+        status = mapped_status
 
         profile = job.get("processing_profile") if isinstance(job.get("processing_profile"), dict) else {}
         latency = profile.get("median_latency_ms")
@@ -1318,6 +1329,7 @@ def scan_input_directory() -> dict:
             "path": str(path),
             "size": path.stat().st_size,
             "status": states.get(relative_name, {}).get("status", "received"),
+            "queue_status": states.get(relative_name, {}).get("queue_status") or states.get(relative_name, {}).get("status", "received"),
             "sha256": states.get(relative_name, {}).get("sha256"),
             "duplicate_of": states.get(relative_name, {}).get("duplicate_of"),
         }

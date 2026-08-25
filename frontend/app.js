@@ -194,6 +194,22 @@ function resetReviewPanelState() {
   updateReviewSummary({ duplicate: false, blocked: false, ready: false });
 }
 
+function normalizeQueueState(status) {
+  const normalized = String(status || "received").trim().toLowerCase();
+  if (["ready", "ready_for_review", "ready_for_processing", "prepared", "in_review"].includes(normalized)) return "ready";
+  if (["processing", "preparing", "prewarm", "queued_processing", "awaiting_ocr"].includes(normalized)) return "processing";
+  if (["queued", "pending", "waiting", "in_queue"].includes(normalized)) return "queued";
+  if (["failed", "error", "blocked", "retry_failed"].includes(normalized)) return "failed";
+  return normalized || "queued";
+}
+
+function getQueueStateBadge(state) {
+  const normalized = normalizeQueueState(state);
+  const label = normalized === "ready" ? "Ready" : normalized === "processing" ? "Preparing" : normalized === "failed" ? "Failed" : normalized === "queued" ? "Queued" : "Queued";
+  const tone = normalized === "ready" ? "safe" : normalized === "processing" ? "neutral" : normalized === "failed" ? "warning" : "neutral";
+  return `<span class="queue-badge queue-badge-${tone}">${label}</span>`;
+}
+
 function getStatusLabel(status) {
   return String(status || "received").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -340,13 +356,15 @@ function renderInbox(files) {
       item.setAttribute("aria-current", isSelected ? "true" : "false");
       item.setAttribute("data-queue-position", `${queuePosition || 0}`);
       const duplicateNote = file.duplicate_of ? ` · duplicate of ${escapeHtml(file.duplicate_of)}` : "";
-      const statusClass = isShelved ? "neutral" : file.duplicate_of ? "warning" : "good";
+      const queueState = normalizeQueueState(file.queue_status || file.status || "received");
+      const statusClass = isShelved ? "neutral" : queueState === "failed" ? "warning" : queueState === "ready" ? "good" : "neutral";
       const source = formatSourcePath(file.name);
       const queueBadges = [
-        isShelved ? '<span class="queue-badge queue-badge-neutral">Shelved</span>' : (file.duplicate_of ? '<span class="queue-badge queue-badge-warning">Duplicate</span>' : '<span class="queue-badge queue-badge-safe">Unique</span>'),
+        isShelved ? '<span class="queue-badge queue-badge-neutral">Shelved</span>' : getQueueStateBadge(file.queue_status || file.status || "received"),
+        file.duplicate_of ? '<span class="queue-badge queue-badge-warning">Duplicate</span>' : '<span class="queue-badge queue-badge-safe">Unique</span>',
         isSelected ? '<span class="queue-badge queue-badge-active">Current</span>' : `<span class="queue-badge queue-badge-neutral">#${queuePosition || 0}</span>`
       ].join("");
-      const statusLabel = isShelved ? "SHELVED" : (file.status || "received").replace("_", " ").toUpperCase();
+      const statusLabel = isShelved ? "SHELVED" : getStatusLabel(file.queue_status || file.status || "received");
       item.innerHTML = `
         <div class="inbox-item-header">
           <label class="merge-toggle" aria-label="Select ${escapeHtml(file.name)} for combining">

@@ -574,7 +574,7 @@ def test_queue_summary_and_retry_flow_exposes_hardening_status(monkeypatch, tmp_
     summary = client.get("/api/jobs/summary").json()
 
     assert summary["total_jobs"] >= 1
-    assert summary["queued"] >= 1
+    assert summary["ready"] >= 1
     retry_response = client.post(f"/api/jobs/{queued['job_id']}/retry")
     assert retry_response.status_code == 200
     retried_job = client.get(f"/api/jobs/{queued['job_id']}").json()
@@ -594,13 +594,52 @@ def test_admin_dashboard_summary_exposes_health_metrics(monkeypatch, tmp_path):
     client.post("/api/documents/invoice.pdf/prepare?async=true")
     summary = client.get("/api/jobs/summary").json()
 
-    assert summary["status_breakdown"]["queued"] >= 1
+    assert summary["status_breakdown"]["ready"] >= 1
     assert "average_latency_ms" in summary
     assert "failure_rate" in summary
     assert "local_resolution_rate" in summary
     assert "ai_resolution_rate" in summary
     assert summary["jobs"][0]["filename"] == "invoice.pdf"
     assert "quality_score" in summary["jobs"][0]
+
+
+def test_queue_summary_counts_ready_for_review_as_ready(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    client = TestClient(main.app)
+    queued = client.post("/api/documents/invoice.pdf/prepare?async=true").json()
+    jobs = main.read_job_store()
+    queued_job = jobs[queued["job_id"]]
+    queued_job["status"] = "queued"
+    queued_job["queue_status"] = "ready_for_review"
+    main.JOB_STATUS_PATH.write_text(__import__("json").dumps(jobs, indent=2), encoding="utf-8")
+
+    summary = client.get("/api/jobs/summary").json()
+
+    assert summary["status_breakdown"]["ready"] >= 1
+    assert summary["status_breakdown"]["queued"] == 0
+
+
+def test_scan_input_directory_exposes_queue_status_for_ui(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    main.write_document_state("invoice.pdf", "in_review", queue_status="ready_for_review", processing_id="abc123")
+
+    result = main.scan_input_directory()
+    file_entry = next(item for item in result["files"] if item["name"] == "invoice.pdf")
+
+    assert file_entry["queue_status"] == "ready_for_review"
+    assert file_entry["status"] == "in_review"
 
 
 def test_background_prewarm_scheduler_prepares_new_pdfs(monkeypatch, tmp_path):
