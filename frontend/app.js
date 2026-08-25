@@ -359,6 +359,13 @@ function renderInbox(files) {
       const queueState = normalizeQueueState(file.queue_status || file.status || "received");
       const statusClass = isShelved ? "neutral" : queueState === "failed" ? "warning" : queueState === "ready" ? "good" : "neutral";
       const source = formatSourcePath(file.name);
+      const suggestedFilename = file.suggested_filename || source.basename;
+      const metadataBits = [
+        file.category ? `Category: ${escapeHtml(file.category)}` : null,
+        file.date ? `Date: ${escapeHtml(file.date)}` : null,
+        file.page_count ? `${file.page_count} pages` : null
+      ].filter(Boolean);
+      const metadataText = metadataBits.length ? ` · ${metadataBits.join(" · ")}` : "";
       const queueBadges = [
         isShelved ? '<span class="queue-badge queue-badge-neutral">Shelved</span>' : getQueueStateBadge(file.queue_status || file.status || "received"),
         file.duplicate_of ? '<span class="queue-badge queue-badge-warning">Duplicate</span>' : '<span class="queue-badge queue-badge-safe">Unique</span>',
@@ -379,7 +386,7 @@ function renderInbox(files) {
         </div>
         <button class="inbox-document" type="button">
           <strong>${escapeHtml(source.basename)}</strong>
-          <small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · ${isShelved ? "deferred for later analysis" : "ready in n8n input"}${duplicateNote}</small>
+          <small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · Suggestion: ${escapeHtml(suggestedFilename)}${metadataText}${duplicateNote}</small>
         </button>
         <span class="file-state file-state-${statusClass}">${escapeHtml(statusLabel)}</span>
       `;

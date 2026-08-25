@@ -642,6 +642,33 @@ def test_scan_input_directory_exposes_queue_status_for_ui(monkeypatch, tmp_path)
     assert file_entry["status"] == "in_review"
 
 
+def test_scan_input_directory_exposes_suggested_filename_metadata_for_ui(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    document = source / "invoice.pdf"
+    with __import__("pymupdf").open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), "Invoice Amount Due VAT")
+        pdf.save(document)
+
+    main.write_document_state(
+        "invoice.pdf",
+        "in_review",
+        queue_status="ready_for_review",
+        processing_id="abc123",
+        suggested_filename="invoice_2026_08_25.pdf",
+        page_count=3,
+        category="Invoice",
+        date="2026-08-25",
+    )
+
+    result = main.scan_input_directory()
+    file_entry = next(item for item in result["files"] if item["name"] == "invoice.pdf")
+
+    assert file_entry["suggested_filename"] == "invoice_2026_08_25.pdf"
+    assert file_entry["page_count"] == 3
+    assert file_entry["category"] == "Invoice"
+
+
 def test_background_prewarm_scheduler_prepares_new_pdfs(monkeypatch, tmp_path):
     main, source, _ = load_api(monkeypatch, tmp_path)
     document = source / "invoice.pdf"

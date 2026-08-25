@@ -1330,6 +1330,10 @@ def scan_input_directory() -> dict:
             "size": path.stat().st_size,
             "status": states.get(relative_name, {}).get("status", "received"),
             "queue_status": states.get(relative_name, {}).get("queue_status") or states.get(relative_name, {}).get("status", "received"),
+            "suggested_filename": states.get(relative_name, {}).get("suggested_filename"),
+            "page_count": states.get(relative_name, {}).get("page_count"),
+            "category": states.get(relative_name, {}).get("category"),
+            "date": states.get(relative_name, {}).get("date"),
             "sha256": states.get(relative_name, {}).get("sha256"),
             "duplicate_of": states.get(relative_name, {}).get("duplicate_of"),
         }
