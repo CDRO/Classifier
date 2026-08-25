@@ -287,6 +287,29 @@ def test_finalize_prepared_document_creates_destinee_file(monkeypatch, tmp_path)
     assert (destination / "Destinee A" / "invoice.pdf").read_bytes() == b"prepared pdf"
 
 
+def test_approval_roles_are_enforced_and_audited(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    (source / "invoice.pdf").write_bytes(b"prepared pdf")
+    client = TestClient(main.app)
+    client.post("/api/classification/config", json={"destinees": ["Destinee A"]})
+    prepared = client.post("/api/documents/invoice.pdf/prepare").json()
+
+    blocked = client.post(
+        "/api/documents/invoice.pdf/finalize",
+        json={"processing_id": prepared["processing_id"], "destinee": "Destinee A", "actor": "reviewer-1", "role": "reviewer"},
+    )
+    assert blocked.status_code == 403
+
+    allowed = client.post(
+        "/api/documents/invoice.pdf/finalize",
+        json={"processing_id": prepared["processing_id"], "destinee": "Destinee A", "actor": "approver-1", "role": "approver"},
+    )
+    assert allowed.status_code == 200
+
+    audit = client.get("/api/approval/audit").json()
+    assert any(entry["action"] == "finalize" and entry["actor"] == "approver-1" for entry in audit["entries"])
+
+
 def test_finalize_rejects_unknown_destinee(monkeypatch, tmp_path):
     main, source, _ = load_api(monkeypatch, tmp_path)
     (source / "invoice.pdf").write_bytes(b"prepared pdf")

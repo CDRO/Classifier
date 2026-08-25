@@ -32,6 +32,7 @@ CONFIG_PATH = Path(os.getenv("CLASSIFICATION_CONFIG_PATH", "/data/config/classif
 DOCUMENTS_PATH = Path(os.getenv("DOCUMENTS_STATUS_PATH", "/data/config/documents.json"))
 ANALYSIS_STATUS_PATH = Path(os.getenv("ANALYSIS_STATUS_PATH", "/data/config/analysis-status.json"))
 JOB_STATUS_PATH = Path(os.getenv("JOB_STATUS_PATH", "/data/config/jobs.json"))
+APPROVAL_AUDIT_PATH = Path(os.getenv("APPROVAL_AUDIT_PATH", "/data/config/approval-audit.json"))
 TEMP_PATH = Path(os.getenv("TEMP_PATH", "/data/temp"))
 FRONTEND_DIR = Path("/app/frontend") if Path("/app/frontend").exists() else Path(__file__).resolve().parent.parent / "frontend"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -94,6 +95,8 @@ class FinalizeRequest(BaseModel):
     processing_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-f0-9]+$")
     destinee: str = Field(min_length=1, max_length=80)
     output_filename: Optional[str] = Field(default=None, max_length=180)
+    actor: Optional[str] = Field(default=None, max_length=80)
+    role: Optional[str] = Field(default=None, max_length=20)
 
     @field_validator("output_filename")
     @classmethod
@@ -104,6 +107,16 @@ class FinalizeRequest(BaseModel):
         if not _FILENAME_PATTERN.fullmatch(cleaned):
             raise ValueError("Output filename must be a single .pdf filename")
         return cleaned
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in {"reviewer", "approver", "admin"}:
+            raise ValueError("Role must be reviewer, approver, or admin")
+        return normalized
 
 
 class RotateRequest(BaseModel):
@@ -306,6 +319,34 @@ def write_analysis_status(available: bool, message: Optional[str] = None, retry_
         json.dumps({"available": available, "message": message, "retry_after": retry_after}, indent=2),
         encoding="utf-8",
     )
+
+
+def read_approval_audit() -> dict:
+    if not APPROVAL_AUDIT_PATH.exists():
+        return {"entries": []}
+    try:
+        data = json.loads(APPROVAL_AUDIT_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("entries"), list):
+            return data
+        return {"entries": []}
+    except (OSError, json.JSONDecodeError):
+        return {"entries": []}
+
+
+def append_approval_audit(action: str, filename: str, actor: Optional[str], role: Optional[str], **details: object) -> dict:
+    audit = read_approval_audit()
+    entry = {
+        "action": action,
+        "filename": filename,
+        "actor": actor or "unknown",
+        "role": role or "unknown",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **details,
+    }
+    audit.setdefault("entries", []).append(entry)
+    APPROVAL_AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    APPROVAL_AUDIT_PATH.write_text(json.dumps(audit, indent=2), encoding="utf-8")
+    return entry
 
 
 def read_job_store() -> dict:
@@ -1110,6 +1151,12 @@ def dismiss_document(filename: str, request: DismissRequest) -> dict:
     }
 
 
+@app.get("/api/approval/audit")
+def get_approval_audit() -> dict:
+    """Return the persisted approval/audit history for user actions."""
+    return read_approval_audit()
+
+
 @app.get("/api/jobs/summary")
 def get_job_summary() -> dict:
     """Return a minimal operational summary of the persisted job queue."""
@@ -1375,6 +1422,13 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         matching_destinee = request.destinee.strip()
         ensure_destinee_directories([matching_destinee])
 
+    role = (request.role or "").strip().lower()
+    actor = (request.actor or "").strip()
+    if role and role not in {"reviewer", "approver", "admin"}:
+        raise HTTPException(status_code=403, detail="Unsupported approval role")
+    if role and role != "approver" and role != "admin":
+        raise HTTPException(status_code=403, detail="Only approvers or admins can finalize documents")
+
     processing_path = (TEMP_PATH / "processing" / request.processing_id / "original.pdf").resolve()
     processing_root = (TEMP_PATH / "processing").resolve()
     if processing_path.parent.parent != processing_root or not processing_path.is_file():
@@ -1409,6 +1463,17 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
     except OSError as exc:
         raise HTTPException(status_code=500, detail="Unable to finalize document") from exc
 
+    entry = append_approval_audit(
+        "finalize",
+        filename,
+        actor or None,
+        role or None,
+        processing_id=request.processing_id,
+        destinee=matching_destinee,
+        destination_path=str(destination_file),
+        archive_path=str(archived_file),
+    )
+
     return {
         "status": "classified",
         "filename": output_filename,
@@ -1416,6 +1481,7 @@ def finalize_document(filename: str, request: FinalizeRequest) -> dict:
         "destinee": matching_destinee,
         "destination_path": str(destination_file),
         "archive_path": str(archived_file),
+        "audit_entry": entry,
     }
 
 
