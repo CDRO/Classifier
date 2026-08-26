@@ -68,7 +68,34 @@ docker build -t classifier-web .
 docker run --rm -p 3000:3000 classifier-web
 ```
 
-Open `http://localhost:3000`. The image creates `/data/source` and `/data/destination`; host-specific mounts will be added in `docker-compose.yml`.
+Open `http://localhost:3000`.
+
+The application expects a writable inbox and a writable destination root, but it does not depend on a particular NAS or SMB share. In production, you can mount the container to any folder that your infrastructure provides, including a remote share, a mounted NAS path, or any other directory that your workflow exposes. The critical requirement is that the container sees a readable source inbox and a writable destination root.
+
+A typical setup is:
+
+```bash
+docker run --rm \
+  -p 3000:3000 \
+  -v /path/to/inbox:/data/source \
+  -v /path/to/output:/data/destination \
+  classifier-web
+```
+
+The default behavior stays valid as `/data/source` and `/data/destination`, but the application is intentionally mount-driven rather than locked to a specific storage topology.
+
+### 3. Ingestion pattern
+
+The classifier is designed to receive documents from an external workflow, not to own the complete file transport layer.
+
+Recommended pattern:
+
+1. Build an n8n workflow or similar automation that watches a remote inbox, folder, email attachment source, or API feed.
+2. Move or copy completed PDFs into the classifier inbox, typically mounted at `/data/source`.
+3. Let the app classify and review the PDFs in the browser.
+4. Use n8n or another automation layer to move classified files away from the final destination directory when needed, depending on your own operational rules.
+
+The classifier therefore treats the source and destination as configured filesystem roots, not as a hardcoded vendor-specific implementation. It is the automation layer around the container that decides where the files originate and where they move after classification.
 
 ### 3. Run Tests
 
@@ -136,7 +163,9 @@ class StorageBackend(ABC):
 
 ### n8n Ingestion
 
-External source access, including Google Drive or email, is configured in n8n. The classifier receives completed PDFs in `/data/source` and does not store source credentials. Host-specific NAS folders will be mapped to this path by `docker-compose.yml`.
+The recommended integration pattern is to use n8n or a similar workflow tool to place completed PDFs in the classifier inbox. The container itself should not be treated as the only source of truth for document movement. The app receives PDFs through the configured source root, which can be a mounted local folder or any remote directory exposed to the container.
+
+This means the source root is operationally owned by the surrounding automation, not by the classifier itself. The app simply processes what the inbox contains.
 
 **Setup:** See [DEPLOYMENT_MANAGEMENT_MANUAL.md Section 4.2.1](docs/guides/DEPLOYMENT_MANAGEMENT_MANUAL.md#421-n8n-ingestion-handoff)
 
@@ -144,30 +173,34 @@ External source access, including Google Drive or email, is configured in n8n. T
 
 **Output root:** `/data/destination/`
 
-After successful finalization, the source PDF is moved from `/data/source` to `/data/archive` so the n8n inbox contains only unprocessed documents.
+After successful finalization, the source PDF is moved from `/data/source` to `/data/archive` so the inbox contains only unprocessed documents. The destination folders remain under the configured route root, and the surrounding workflow can move classified files onward when needed.
 The temporary `/data/temp/processing/<processing_id>/` workspace is removed after the durable classified and archive copies succeed.
 
 **Features:**
 - One output folder per configured destinee
 - No destinees are preconfigured; administrators add them in the web interface.
 - Destinees can be edited in the native browser interface
+- The destination directory is a mounted or managed folder and does not require a built-in NAS or SMB implementation
 
-### Strategic Roadmap: Next 10 Slices
+### Strategic Roadmap: v3.0.0 and beyond
 
-The next work is not a broad Google expansion. The immediate priority is to make the system backend-agnostic and ready for practical operational sources and destinations beyond a single local folder.
+The next release is intentionally narrow and focused on queueing and the user-facing review flow. This keeps the project practical without forcing a provider-specific implementation path.
 
-1. Multi-source root configuration
-2. Multi-destination routing configuration
-3. Local NAS and SMB source adapters
-4. Destinee-aware export planner
-5. Source/destination backend registry and config schema
-6. Storage health checks and validation UI ✅
-7. Archive policy enforcement for source/destination backends
-8. Email inbox ingestion adapter
-9. Microsoft 365 / SharePoint adapter
-10. Webhook/API ingestion and outbound routing
+#### v3.0.0: Queuing and UI updates
+1. Background prewarm queue for pending PDFs
+2. Readiness state in the review UI (queued, preparing, ready, failed)
+3. Suggested filename and metadata visibility before full review clicks
+4. UI refinements that keep the default source path stable and make the active route explicit without broad multi-source expansion
 
-Detailed milestone definitions are maintained in [docs/guides/NEXT_10_MILESTONES.md](docs/guides/NEXT_10_MILESTONES.md).
+#### Later, if needed
+1. Storage health checks and validation UI
+2. More advanced source/destination adapters
+3. Archive policy enforcement or retention automation
+4. Email inbox ingestion adapter
+5. Microsoft 365 / SharePoint adapter
+6. Webhook/API ingestion and outbound routing
+
+The current project stance is intentionally simple: expose the source and destination as mounted folders, let n8n or another automation tool handle document transport, and keep the classifier focused on the review and classification workflow.
 
 ## Private Retention Guarantee
 

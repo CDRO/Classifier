@@ -194,6 +194,31 @@ function resetReviewPanelState() {
   updateReviewSummary({ duplicate: false, blocked: false, ready: false });
 }
 
+function normalizeQueueState(status) {
+  const normalized = String(status || "received").trim().toLowerCase();
+  if (["ready", "ready_for_review", "ready_for_processing", "prepared", "in_review"].includes(normalized)) return "ready";
+  if (["processing", "preparing", "prewarm", "queued_processing", "awaiting_ocr"].includes(normalized)) return "processing";
+  if (["queued", "pending", "waiting", "in_queue"].includes(normalized)) return "queued";
+  if (["failed", "error", "blocked", "retry_failed"].includes(normalized)) return "failed";
+  return normalized || "queued";
+}
+
+function getQueueStateBadge(state) {
+  const normalized = normalizeQueueState(state);
+  const label = normalized === "ready" ? "Ready" : normalized === "processing" ? "Preparing" : normalized === "failed" ? "Failed" : normalized === "queued" ? "Queued" : "Queued";
+  const tone = normalized === "ready" ? "safe" : normalized === "processing" ? "neutral" : normalized === "failed" ? "warning" : "neutral";
+  return `<span class="queue-badge queue-badge-${tone}">${label}</span>`;
+}
+
+function getQueueStateLabel(state) {
+  const normalized = normalizeQueueState(state);
+  if (normalized === "ready") return "Ready";
+  if (normalized === "processing") return "Preparing";
+  if (normalized === "failed") return "Failed";
+  if (normalized === "queued") return "Queued";
+  return "Queued";
+}
+
 function getStatusLabel(status) {
   return String(status || "received").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -340,13 +365,22 @@ function renderInbox(files) {
       item.setAttribute("aria-current", isSelected ? "true" : "false");
       item.setAttribute("data-queue-position", `${queuePosition || 0}`);
       const duplicateNote = file.duplicate_of ? ` · duplicate of ${escapeHtml(file.duplicate_of)}` : "";
-      const statusClass = isShelved ? "neutral" : file.duplicate_of ? "warning" : "good";
+      const queueState = normalizeQueueState(file.queue_status || file.status || "received");
+      const statusClass = isShelved ? "neutral" : queueState === "failed" ? "warning" : queueState === "ready" ? "good" : "neutral";
       const source = formatSourcePath(file.name);
+      const suggestedFilename = file.suggested_filename || source.basename;
+      const metadataBits = [
+        file.category ? `Category: ${escapeHtml(file.category)}` : null,
+        file.date ? `Date: ${escapeHtml(file.date)}` : null,
+        file.page_count ? `${file.page_count} pages` : null
+      ].filter(Boolean);
+      const metadataText = metadataBits.length ? ` · ${metadataBits.join(" · ")}` : "";
       const queueBadges = [
-        isShelved ? '<span class="queue-badge queue-badge-neutral">Shelved</span>' : (file.duplicate_of ? '<span class="queue-badge queue-badge-warning">Duplicate</span>' : '<span class="queue-badge queue-badge-safe">Unique</span>'),
+        isShelved ? '<span class="queue-badge queue-badge-neutral">Shelved</span>' : getQueueStateBadge(file.queue_status || file.status || "received"),
+        file.duplicate_of ? '<span class="queue-badge queue-badge-warning">Duplicate</span>' : '<span class="queue-badge queue-badge-safe">Unique</span>',
         isSelected ? '<span class="queue-badge queue-badge-active">Current</span>' : `<span class="queue-badge queue-badge-neutral">#${queuePosition || 0}</span>`
       ].join("");
-      const statusLabel = isShelved ? "SHELVED" : (file.status || "received").replace("_", " ").toUpperCase();
+      const statusLabel = isShelved ? "SHELVED" : getStatusLabel(file.queue_status || file.status || "received");
       item.innerHTML = `
         <div class="inbox-item-header">
           <label class="merge-toggle" aria-label="Select ${escapeHtml(file.name)} for combining">
@@ -361,7 +395,7 @@ function renderInbox(files) {
         </div>
         <button class="inbox-document" type="button">
           <strong>${escapeHtml(source.basename)}</strong>
-          <small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · ${isShelved ? "deferred for later analysis" : "ready in n8n input"}${duplicateNote}</small>
+          <small>Source: ${escapeHtml(directory)} · ${formatBytes(file.size)} · Suggestion: ${escapeHtml(suggestedFilename)}${metadataText}${duplicateNote}</small>
         </button>
         <span class="file-state file-state-${statusClass}">${escapeHtml(statusLabel)}</span>
       `;
@@ -446,7 +480,9 @@ async function inspectDocument(filename) {
       queuePosition: getVisibleInboxFiles().findIndex((entry) => entry.name === filename) + 1 || null,
       filename: source.basename,
       ready: !selectedDocument.duplicateOf,
-      blocked: Boolean(selectedDocument.duplicateOf)
+      blocked: Boolean(selectedDocument.duplicateOf),
+      queueStatus: queuedDocument?.queue_status || preparedDocument.queue_status || preparedDocument.status || "received",
+      routeTarget: queuedDocument?.destinee || null
     });
     reviewFilename.value = preparedDocument.original_name;
     void prefetchQueuedAnalyses(filename);
@@ -718,12 +754,15 @@ function setReviewStatus(message, variant = "neutral") {
   reviewStatus.className = `count review-status review-status-${variant}`;
 }
 
-function updateReviewSummary({ duplicate = false, blocked = false, ready = false, queuePosition = null, filename = null, destinee = null }) {
+function updateReviewSummary({ duplicate = false, blocked = false, ready = false, queuePosition = null, filename = null, destinee = null, queueStatus = null, routeTarget = null }) {
   if (!reviewSummary) return;
 
   const chips = [];
   if (queuePosition !== null) {
     chips.push(`<span class="summary-chip summary-chip-neutral">Queue #${queuePosition}</span>`);
+  }
+  if (queueStatus) {
+    chips.push(`<span class="summary-chip ${normalizeQueueState(queueStatus) === "failed" ? "summary-chip-warning" : normalizeQueueState(queueStatus) === "ready" ? "summary-chip-safe" : "summary-chip-neutral"}">Queue: ${getQueueStateLabel(queueStatus)}</span>`);
   }
   if (duplicate) {
     chips.push('<span class="summary-chip summary-chip-warning">Duplicate</span>');
@@ -733,10 +772,11 @@ function updateReviewSummary({ duplicate = false, blocked = false, ready = false
   if (filename) {
     chips.push(`<span class="summary-chip summary-chip-neutral">${escapeHtml(filename)}</span>`);
   }
-  if (destinee) {
-    chips.push(`<span class="summary-chip summary-chip-safe">${escapeHtml(destinee)}</span>`);
+  const explicitRoute = routeTarget || destinee;
+  if (explicitRoute) {
+    chips.push(`<span class="summary-chip summary-chip-safe">Route: ${escapeHtml(explicitRoute)}</span>`);
   } else if (ready) {
-    chips.push('<span class="summary-chip summary-chip-safe">Ready</span>');
+    chips.push('<span class="summary-chip summary-chip-safe">Ready to route</span>');
   } else if (blocked) {
     chips.push('<span class="summary-chip summary-chip-warning">Needs attention</span>');
   }
@@ -895,7 +935,9 @@ function updateFinalizeWarnings() {
       queuePosition: hasSelectedDocument ? getVisibleInboxFiles().findIndex((entry) => entry.name === selectedDocument.filename) + 1 || null : null,
       filename: hasSelectedDocument ? formatSourcePath(selectedDocument.filename).basename : null,
       blocked: Boolean(selectedDocument?.duplicateOf),
-      ready: hasSelectedDocument && !selectedDocument?.duplicateOf
+      ready: hasSelectedDocument && !selectedDocument?.duplicateOf,
+      queueStatus: selectedDocument ? (inboxFiles.find((file) => file.name === selectedDocument.filename)?.queue_status || inboxFiles.find((file) => file.name === selectedDocument.filename)?.status || "received") : null,
+      routeTarget: reviewDestinee.value || null
     });
     return;
   }
@@ -910,7 +952,9 @@ function updateFinalizeWarnings() {
       filename: formatSourcePath(selectedDocument.filename).basename,
       blocked: true,
       ready: false,
-      destinee: reviewDestinee.value
+      destinee: reviewDestinee.value,
+      queueStatus: selectedDocument ? (inboxFiles.find((file) => file.name === selectedDocument.filename)?.queue_status || inboxFiles.find((file) => file.name === selectedDocument.filename)?.status || "received") : null,
+      routeTarget: reviewDestinee.value || null
     });
     return;
   }
@@ -925,7 +969,9 @@ function updateFinalizeWarnings() {
       filename: formatSourcePath(selectedDocument.filename).basename,
       blocked: true,
       ready: false,
-      destinee: reviewDestinee.value
+      destinee: reviewDestinee.value,
+      queueStatus: selectedDocument ? (inboxFiles.find((file) => file.name === selectedDocument.filename)?.queue_status || inboxFiles.find((file) => file.name === selectedDocument.filename)?.status || "received") : null,
+      routeTarget: reviewDestinee.value || null
     });
     return;
   }
@@ -939,7 +985,9 @@ function updateFinalizeWarnings() {
     filename: formatSourcePath(selectedDocument.filename).basename,
     ready: true,
     blocked: false,
-    destinee: reviewDestinee.value
+    destinee: reviewDestinee.value,
+    queueStatus: selectedDocument ? (inboxFiles.find((file) => file.name === selectedDocument.filename)?.queue_status || inboxFiles.find((file) => file.name === selectedDocument.filename)?.status || "received") : null,
+    routeTarget: reviewDestinee.value || null
   });
 }
 
