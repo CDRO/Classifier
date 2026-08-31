@@ -4,3 +4,4 @@
 docker.env
 __pycache__/
 .coverage
+nas-config.json
