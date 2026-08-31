@@ -1,0 +1,6 @@
+{
+    "NasIp": "xxx.xxx.xxx.xxx",
+    "NasUser": "IhrSshBenutzer",
+    "NasPassword": "IhrSshUndSudoPasswort",
+    "ComposeDir": "/volume1/docker/classifier"
+}
