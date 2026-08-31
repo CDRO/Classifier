@@ -1,0 +1,6 @@
+{
+    "NasIp": "192.168.1.40",
+    "NasUser": "tizian",
+    "NasPassword": "[SPyro91!]",
+    "ComposeDir": "/volume1/docker/classifier"
+}
