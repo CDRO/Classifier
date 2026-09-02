@@ -41,6 +41,11 @@ def test_index_does_not_load_config_script():
     assert 'src="config.js' not in index_html
 
 
+def test_index_exposes_browser_notification_toggle():
+    index_html = Path("frontend/index.html").read_text(encoding="utf-8")
+    assert 'id="browser-notification-toggle"' in index_html
+
+
 def test_config_page_implements_live_configuration_interface():
     config_js = Path("frontend/config.js").read_text(encoding="utf-8")
     assert "fetch(`${API_BASE_URL}/api/classification/config`" in config_js

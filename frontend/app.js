@@ -48,6 +48,7 @@ const historySearch = document.querySelector("#history-search");
 const historyFolderFilter = document.querySelector("#history-folder-filter");
 const historyStatusFilter = document.querySelector("#history-status-filter");
 const historySort = document.querySelector("#history-sort");
+const browserNotificationToggle = document.querySelector("#browser-notification-toggle");
 let selectedDocument = null;
 let configuredDestinees = [];
 let splitParts = [];
@@ -55,6 +56,96 @@ let inboxFiles = [];
 let historyDocuments = [];
 let mergeSelection = new Set();
 let shelvedFiles = new Set();
+let browserNotificationsEnabled = false;
+let lastInboxState = new Map();
+
+function updateBrowserNotificationToggle() {
+  if (!browserNotificationToggle) return;
+  const supported = "Notification" in window;
+  const permission = supported ? Notification.permission : "unsupported";
+  const enabled = supported && browserNotificationsEnabled && permission === "granted";
+  browserNotificationToggle.disabled = !supported;
+  browserNotificationToggle.textContent = !supported
+    ? "Notifications unsupported"
+    : enabled
+      ? "Notifications enabled"
+      : "Enable notifications";
+  browserNotificationToggle.setAttribute("aria-pressed", String(enabled));
+}
+
+async function requestBrowserNotifications() {
+  if (!("Notification" in window)) {
+    updateBrowserNotificationToggle();
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+  browserNotificationsEnabled = permission === "granted";
+  localStorage.setItem("classifier.notifications", browserNotificationsEnabled ? "enabled" : "disabled");
+  updateBrowserNotificationToggle();
+
+  if (browserNotificationsEnabled) {
+    showBrowserNotification("Notifications enabled", "You will be alerted when a new file is ready.");
+  }
+}
+
+function openClassifierMainPage() {
+  const url = new URL(window.location.href, window.location.origin);
+  url.pathname = "/";
+  url.hash = "";
+  const target = url.toString();
+  try {
+    const popup = window.open(target, "_blank");
+    if (popup) {
+      popup.opener = null;
+      popup.focus();
+    } else {
+      window.focus();
+      window.location.href = target;
+    }
+  } catch {
+    window.focus();
+    window.location.href = target;
+  }
+}
+
+function showBrowserNotification(title, body) {
+  if (!("Notification" in window) || !browserNotificationsEnabled || Notification.permission !== "granted") {
+    return;
+  }
+
+  const notification = new Notification(title, {
+    body,
+    tag: "classifier-ready",
+    requireInteraction: true,
+  });
+
+  notification.onclick = () => {
+    openClassifierMainPage();
+    notification.close();
+  };
+}
+
+function maybeNotifyForNewInbox(files) {
+  if (!("Notification" in window) || !browserNotificationsEnabled || Notification.permission !== "granted") {
+    lastInboxState = new Map(files.map((file) => [file.name, normalizeQueueState(file.queue_status || file.status || "received")]));
+    return;
+  }
+
+  const newReadyFiles = files.filter((file) => {
+    const nextState = normalizeQueueState(file.queue_status || file.status || "received");
+    const previousState = lastInboxState.get(file.name);
+    const isNewReady = previousState === undefined && nextState !== "failed" && nextState !== "dismissed" && nextState !== "classified";
+    const isStateTransition = previousState && previousState !== "ready" && nextState === "ready";
+    return isNewReady || isStateTransition;
+  });
+
+  lastInboxState = new Map(files.map((file) => [file.name, normalizeQueueState(file.queue_status || file.status || "received")]));
+
+  newReadyFiles.slice(0, 3).forEach((file) => {
+    showBrowserNotification("New file ready", `${file.name} is ready for review.`);
+  });
+}
 
 function bindReviewDestineeValueSync() {
   if (!reviewDestinee || reviewDestinee.dataset.destineeSyncBound === "true") return;
@@ -1081,7 +1172,13 @@ async function refreshInbox() {
     const response = await fetch(`${API_BASE_URL}/api/classification/scan`, { method: "POST" });
     if (!response.ok) throw new Error("Scan failed");
     const result = await response.json();
-    inboxFiles = result.files || [];
+    const nextFiles = result.files || [];
+    if (!lastInboxState.size) {
+      lastInboxState = new Map(nextFiles.map((file) => [file.name, normalizeQueueState(file.queue_status || file.status || "received")]));
+    } else {
+      maybeNotifyForNewInbox(nextFiles);
+    }
+    inboxFiles = nextFiles;
     getInboxFilterOptions();
     renderInbox(inboxFiles);
     refreshHistory();
@@ -1252,6 +1349,10 @@ document.querySelector("#add-destinee").addEventListener("click", () => {
   next.push("");
   render(next);
   list.lastElementChild.querySelector("input").focus();
+});
+
+browserNotificationToggle?.addEventListener("click", () => {
+  void requestBrowserNotifications();
 });
 
 document.querySelector("#refresh-inbox").addEventListener("click", refreshInbox);
@@ -1428,6 +1529,12 @@ document.querySelector("#destinee-form").addEventListener("submit", async (event
 });
 
 async function initialize() {
+  if ("Notification" in window) {
+    const savedPreference = localStorage.getItem("classifier.notifications");
+    const hasPermission = Notification.permission === "granted";
+    browserNotificationsEnabled = hasPermission && savedPreference !== "disabled";
+  }
+
   let config = { destinees: loadDestinees(), source_roots: [SOURCE_PATH], destination_roots: {} };
   try {
     const response = await fetch(`${API_BASE_URL}/api/classification/config`);
@@ -1466,6 +1573,7 @@ async function initialize() {
       document.querySelector("[data-preview-root]").textContent = `${DESTINATION_PATH}/`;
     }
   }
+  updateBrowserNotificationToggle();
 }
 
 initialize();
