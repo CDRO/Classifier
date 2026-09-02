@@ -23,6 +23,8 @@ button { cursor: pointer; }
 .topbar, .panel-heading, .preview-heading, footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
 .help-button { min-width: 110px; justify-content: center; }
+#browser-notification-toggle { min-width: 180px; justify-content: center; }
+#browser-notification-toggle:disabled { opacity: .5; cursor: not-allowed; }
 .eyebrow { margin: 0 0 10px; color: var(--muted); font: 700 11px/1.2 Arial, sans-serif; letter-spacing: 1.5px; }
 .accent { color: var(--amber); }
 h1, h2, p { margin-top: 0; }

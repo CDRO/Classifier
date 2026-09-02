@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 3.0.0 - 2026-09-02
+
+### Added
+- Added opt-in browser notifications for newly ready inbox documents, with notification clicks opening the classifier main page.
+
 ### Added
 - Added storage backend catalog metadata for the runtime registry, including backend names, categories, and descriptions.
 - Added backend validation helpers to confirm backend health and resolve the path used for a configured storage endpoint.
