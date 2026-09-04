@@ -46,6 +46,29 @@ def test_index_exposes_browser_notification_toggle():
     assert 'id="browser-notification-toggle"' in index_html
 
 
+def test_index_exposes_notification_fallback_status_banner():
+    index_html = Path("frontend/index.html").read_text(encoding="utf-8")
+    assert 'id="notification-status"' in index_html
+    assert 'data-notification-status' in index_html
+
+
+def test_app_uses_wrapper_capability_contract_when_available():
+    app_js = Path("frontend/app.js").read_text(encoding="utf-8")
+    assert "getCapabilities" in app_js
+    assert "getNotificationState" in app_js
+    assert "onStateChange" in app_js
+    assert 'wrapper && typeof wrapper.initialize === "function"' in app_js
+    assert "Background notifications are unavailable here. In-app alerts remain available." in app_js
+
+
+def test_app_degrades_gracefully_when_wrapper_or_browser_support_is_missing():
+    app_js = Path("frontend/app.js").read_text(encoding="utf-8")
+    assert "capabilitySnapshot.notifications === \"unsupported\"" in app_js
+    assert "permission === \"denied\"" in app_js
+    assert "serviceWorker === \"unsupported\"" in app_js
+    assert "Keep app functionality intact when the wrapper is unavailable or partially supported." in app_js
+
+
 def test_config_page_implements_live_configuration_interface():
     config_js = Path("frontend/config.js").read_text(encoding="utf-8")
     assert "fetch(`${API_BASE_URL}/api/classification/config`" in config_js
