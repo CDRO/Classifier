@@ -178,6 +178,67 @@ def test_notification_subscription_cleanup_removes_expired_and_invalid_records(m
     assert endpoints == ["https://push.example.test/ok"]
 
 
+def test_notification_read_does_not_mutate_storage_until_cleanup_is_explicit(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+
+    main.NOTIFICATION_SUBSCRIPTIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    main.NOTIFICATION_SUBSCRIPTIONS_PATH.write_text(
+        json.dumps([
+            {"endpoint": "https://push.example.test/expired", "scope": "all", "expirationTime": 1},
+            {"endpoint": "https://push.example.test/valid", "scope": "all"},
+        ]),
+        encoding="utf-8",
+    )
+
+    raw_before = main.NOTIFICATION_SUBSCRIPTIONS_PATH.read_text(encoding="utf-8")
+    subscriptions = main.read_notification_subscriptions()
+
+    assert [subscription["endpoint"] for subscription in subscriptions] == ["https://push.example.test/valid"]
+    assert main.NOTIFICATION_SUBSCRIPTIONS_PATH.read_text(encoding="utf-8") == raw_before
+
+
+def test_notification_unsubscribe_removes_matching_subscription(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    client.post("/api/notifications/subscribe", json={"endpoint": "https://push.example.test/global", "scope": "all"})
+    client.post("/api/notifications/subscribe", json={"endpoint": "https://push.example.test/source", "scope": "source", "source": "nas-share-01"})
+
+    removed = client.request(
+        "DELETE",
+        "/api/notifications/subscribe",
+        json={"endpoint": "https://push.example.test/global"},
+    )
+    assert removed.status_code == 200
+    assert removed.json()["endpoint"] == "https://push.example.test/global"
+
+    listed = client.get("/api/notifications/subscriptions")
+    assert listed.status_code == 200
+    assert [subscription["endpoint"] for subscription in listed.json()["subscriptions"]] == ["https://push.example.test/source"]
+
+
+def test_prepare_document_publishes_ready_notification_for_ready_files(monkeypatch, tmp_path):
+    main, source, _ = load_api(monkeypatch, tmp_path)
+    source_file = source / "invoice.pdf"
+    with __import__("pymupdf").open() as document:
+        page = document.new_page()
+        page.insert_text((72, 72), "Invoice total due is EUR 199.00")
+        document.save(source_file)
+
+    calls = []
+
+    def fake_publish(filenames, source_name=None):
+        calls.append({"filenames": list(filenames), "source_name": source_name})
+        return {"count": len(filenames), "delivered": 0, "failed": 0, "source": source_name}
+
+    monkeypatch.setattr(main, "publish_ready_file_notifications", fake_publish)
+
+    prepared = main.prepare_document("invoice.pdf", async_mode=False)
+
+    assert prepared["queue_status"] == "ready_for_review"
+    assert calls == [{"filenames": ["invoice.pdf"], "source_name": str(source)}]
+
+
 def test_ready_notification_summary_caps_counts_and_preserves_source(monkeypatch, tmp_path):
     main, _, _ = load_api(monkeypatch, tmp_path)
 
