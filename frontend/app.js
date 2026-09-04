@@ -49,6 +49,7 @@ const historyFolderFilter = document.querySelector("#history-folder-filter");
 const historyStatusFilter = document.querySelector("#history-status-filter");
 const historySort = document.querySelector("#history-sort");
 const browserNotificationToggle = document.querySelector("#browser-notification-toggle");
+const notificationStatus = document.querySelector("#notification-status");
 let selectedDocument = null;
 let configuredDestinees = [];
 let splitParts = [];
@@ -59,18 +60,109 @@ let shelvedFiles = new Set();
 let browserNotificationsEnabled = false;
 let lastInboxState = new Map();
 
+function getCapabilities(environment = window) {
+  const browserEnvironment = environment || window;
+  const wrapper = browserEnvironment?.pwaWrapper;
+
+  if (wrapper && typeof wrapper.getCapabilities === "function") {
+    try {
+      return wrapper.getCapabilities(browserEnvironment);
+    } catch {
+      // Fall back to the native browser checks below when the wrapper is unavailable.
+    }
+  }
+
+  const hasServiceWorker = !!(browserEnvironment?.navigator && browserEnvironment.navigator.serviceWorker && typeof browserEnvironment.navigator.serviceWorker.register === "function");
+  const hasNotifications = typeof browserEnvironment?.Notification === "function" || typeof browserEnvironment?.Notification === "object";
+  const permission = hasNotifications ? browserEnvironment.Notification.permission : "unsupported";
+  const pushSupported = typeof browserEnvironment?.PushManager === "function" && hasServiceWorker;
+
+  return {
+    installability: hasServiceWorker ? "supported" : "unsupported",
+    notifications: permission === "denied" ? "denied" : hasNotifications ? "supported" : "unsupported",
+    push: pushSupported ? "supported" : "unsupported",
+    serviceWorker: hasServiceWorker ? "supported" : "unsupported",
+    fallback: "in_app_only",
+  };
+}
+
+function getNotificationState(environment = window) {
+  const browserEnvironment = environment || window;
+  const wrapper = browserEnvironment?.pwaWrapper;
+
+  if (wrapper && typeof wrapper.getNotificationState === "function") {
+    try {
+      return wrapper.getNotificationState(browserEnvironment);
+    } catch {
+      // Fall back to the native browser state below when the wrapper is unavailable.
+    }
+  }
+
+  const hasNotifications = typeof browserEnvironment?.Notification === "function" || typeof browserEnvironment?.Notification === "object";
+  const permission = hasNotifications ? browserEnvironment.Notification.permission : "default";
+  return {
+    permission: permission === "granted" || permission === "denied" || permission === "default" ? permission : "default",
+    subscription: typeof browserEnvironment?.PushManager === "function" ? "unsubscribed" : "unsupported",
+    fallback: "in_app_only",
+  };
+}
+
+function onStateChange(listener) {
+  const wrapper = window?.pwaWrapper;
+  if (wrapper && typeof wrapper.onStateChange === "function") {
+    return wrapper.onStateChange(listener);
+  }
+
+  return () => {};
+}
+
+function renderNotificationStatus() {
+  if (!notificationStatus) return;
+
+  const capabilitySnapshot = getCapabilities(window);
+  const notificationState = getNotificationState(window);
+  const degraded = capabilitySnapshot.serviceWorker === "unsupported"
+    || capabilitySnapshot.notifications === "denied"
+    || capabilitySnapshot.push === "unsupported";
+
+  if (!degraded) {
+    notificationStatus.hidden = true;
+    notificationStatus.textContent = "";
+    return;
+  }
+
+  let message = "Background notifications are unavailable here. In-app alerts remain available.";
+  if (notificationState.permission === "denied") {
+    message = "Notifications are disabled in this browser. In-app alerts remain available.";
+  } else if (capabilitySnapshot.push === "unsupported") {
+    message = "Background push is unavailable here. In-app updates remain enabled.";
+  } else if (capabilitySnapshot.serviceWorker === "unsupported") {
+    message = "This browser cannot keep background notifications active. In-app alerts remain available.";
+  }
+
+  notificationStatus.hidden = false;
+  notificationStatus.textContent = message;
+}
+
 function updateBrowserNotificationToggle() {
   if (!browserNotificationToggle) return;
-  const supported = "Notification" in window;
-  const permission = supported ? Notification.permission : "unsupported";
-  const enabled = supported && browserNotificationsEnabled && permission === "granted";
-  browserNotificationToggle.disabled = !supported;
-  browserNotificationToggle.textContent = !supported
+
+  const capabilitySnapshot = getCapabilities(window);
+  const state = getNotificationState(window);
+  const permission = state.permission || "default";
+  const enabled = capabilitySnapshot.notifications === "supported" && browserNotificationsEnabled && permission === "granted";
+  const disabled = capabilitySnapshot.notifications === "unsupported" || permission === "denied" || capabilitySnapshot.serviceWorker === "unsupported";
+
+  browserNotificationToggle.disabled = disabled;
+  browserNotificationToggle.textContent = capabilitySnapshot.notifications === "unsupported"
     ? "Notifications unsupported"
-    : enabled
-      ? "Notifications enabled"
-      : "Enable notifications";
+    : permission === "denied"
+      ? "Notifications blocked"
+      : enabled
+        ? "Notifications enabled"
+        : "Enable notifications";
   browserNotificationToggle.setAttribute("aria-pressed", String(enabled));
+  renderNotificationStatus();
 }
 
 async function requestBrowserNotifications() {
@@ -1529,10 +1621,24 @@ document.querySelector("#destinee-form").addEventListener("submit", async (event
 });
 
 async function initialize() {
+  const wrapper = window?.pwaWrapper;
+  if (wrapper && typeof wrapper.initialize === "function") {
+    try {
+      await wrapper.initialize({ apiVersion: "1.0.0" });
+    } catch {
+      // Keep app functionality intact when the wrapper is unavailable or partially supported.
+    }
+  }
+
   if ("Notification" in window) {
     const savedPreference = localStorage.getItem("classifier.notifications");
     const hasPermission = Notification.permission === "granted";
     browserNotificationsEnabled = hasPermission && savedPreference !== "disabled";
+  }
+
+  const capabilitySnapshot = getCapabilities(window);
+  if (capabilitySnapshot.notifications === "denied") {
+    browserNotificationsEnabled = false;
   }
 
   let config = { destinees: loadDestinees(), source_roots: [SOURCE_PATH], destination_roots: {} };
@@ -1574,6 +1680,11 @@ async function initialize() {
     }
   }
   updateBrowserNotificationToggle();
+  if (window?.pwaWrapper && typeof window.pwaWrapper.onStateChange === "function") {
+    window.pwaWrapper.onStateChange(() => {
+      updateBrowserNotificationToggle();
+    });
+  }
 }
 
 initialize();

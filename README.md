@@ -43,7 +43,15 @@ This project is evolving from a single-provider workflow into a general document
 ├── pyproject.toml                    # Project configuration & dependencies
 └── README.md                         # This file
 ```
+## Background notification fallback behavior
 
+Classifier exposes a native in-app fallback for browsers that cannot support background push delivery. The frontend checks the wrapper capability contract first when it is available, then falls back to the browser's native Notification and Push APIs without crashing.
+
+- Unsupported browsers keep the inbox and review workflow fully usable.
+- Denied notification permission keeps the app functional while showing a banner explaining that in-app alerts remain available.
+- The notification toggle is disabled in degraded states instead of throwing or leaving the page in an inconsistent state.
+
+This keeps the review flow usable even when the browser cannot maintain background delivery or when the user has blocked notification permission.
 ## Getting Started
 
 ### 1. Install Dependencies
