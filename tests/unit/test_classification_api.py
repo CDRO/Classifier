@@ -57,8 +57,8 @@ def test_app_uses_wrapper_capability_contract_when_available():
     assert "getCapabilities" in app_js
     assert "getNotificationState" in app_js
     assert "onStateChange" in app_js
-    assert "wrapper && typeof wrapper.initialize === \"function\"" in app_js
-    assert "Notifications are disabled in this browser. In-app alerts remain available." in app_js
+    assert 'wrapper && typeof wrapper.initialize === "function"' in app_js
+    assert "Background notifications are unavailable here. In-app alerts remain available." in app_js
 
 
 def test_app_degrades_gracefully_when_wrapper_or_browser_support_is_missing():
