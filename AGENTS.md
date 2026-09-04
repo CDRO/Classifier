@@ -6,6 +6,35 @@
 
 **Current integration boundary:** n8n writes completed PDFs to the container path `/data/source`. The classifier web interface owns configurable destinees, and classified files are written to `/data/destination/<destinee>/`. Host-specific NAS folders belong in `docker-compose.yml`.
 
+## Session Bootstrap (Recovery After Context Loss)
+
+AGENTS.md is auto-loaded into every new session for this workspace, but it cannot know which task was in progress if an agent's memory or context is lost mid-task. Any agent that is fresh, recovering, or re-entering a work session must run this before writing any code:
+
+```bash
+gh issue list --state open --json number,title,milestone,assignees,labels
+gh pr list --state open --json number,title,headRefName,isDraft,body
+```
+
+Resolution order:
+
+1. If an open PR already exists for the task at hand, or any open draft PR with no other agent actively on it, resume it. Read its latest review-status comment to find the exact next step instead of restarting from cycle 1.
+2. If no PR exists but a matching open issue exists, pick that issue and follow the workflow below.
+3. If no issue exists yet, this is a new idea or request; create the issue under the relevant milestone before branching or writing any code.
+4. Never start work without first checking whether an existing issue or PR already covers it. This prevents duplicate or conflicting work after a crash or context reset.
+
+## New Feature Intake (Turning an Idea into Planned Work)
+
+A request, bug report, or idea is not "work" until it exists as a GitHub issue assigned to a milestone. This applies uniformly to a human conversation, a discovered defect, or a new agent observation.
+
+1. Check the open milestones (`gh api repos/:owner/:repo/milestones`) for one whose scope already fits the work.
+2. If a milestone fits, create the issue under it:
+   ```bash
+   gh api repos/:owner/:repo/issues -f title="..." -f body="..." -F milestone=<number>
+   ```
+3. If no milestone fits, propose a new milestone first; do not silently expand an existing milestone's scope.
+4. Only after the issue and milestone exist should implementation begin.
+5. This keeps the backlog itself as the single source of truth for planned work, so a future session recovering from context loss sees the same plan a human would see on GitHub.
+
 ---
 
 ## Preamble: The CAVEMAN Manifesto
