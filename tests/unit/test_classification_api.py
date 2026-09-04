@@ -1,6 +1,7 @@
 """Focused tests for the n8n handoff and destinee configuration API."""
 
 import importlib
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,6 +18,7 @@ def load_api(monkeypatch, tmp_path):
     config = tmp_path / "config.json"
     documents = tmp_path / "documents.json"
     analysis_status = tmp_path / "analysis-status.json"
+    notifications = tmp_path / "notification-subscriptions.json"
     source.mkdir()
     monkeypatch.setenv("RAW_INPUT_PATH", str(source))
     monkeypatch.setenv("CLASSIFIED_OUTPUT_PATH", str(destination))
@@ -26,6 +28,7 @@ def load_api(monkeypatch, tmp_path):
     monkeypatch.setenv("DOCUMENTS_STATUS_PATH", str(documents))
     monkeypatch.setenv("ANALYSIS_STATUS_PATH", str(analysis_status))
     monkeypatch.setenv("TEMP_PATH", str(temp))
+    monkeypatch.setenv("NOTIFICATION_SUBSCRIPTIONS_PATH", str(notifications))
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     import app.main as main
     return importlib.reload(main), source, destination
@@ -108,6 +111,128 @@ def test_api_allows_browser_requests_from_port_3001(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") == "http://127.0.0.1:3001"
+
+
+def test_notification_subscriptions_support_global_and_source_scopes(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    global_response = client.post(
+        "/api/notifications/subscribe",
+        json={"endpoint": "https://push.example.test/global", "scope": "all"},
+    )
+    assert global_response.status_code == 200
+    assert global_response.json()["scope"] == "all"
+    assert global_response.json()["source"] is None
+
+    source_response = client.post(
+        "/api/notifications/subscribe",
+        json={"endpoint": "https://push.example.test/source", "scope": "source", "source": "nas-share-01"},
+    )
+    assert source_response.status_code == 200
+    assert source_response.json()["scope"] == "source"
+    assert source_response.json()["source"] == "nas-share-01"
+
+    listed = client.get("/api/notifications/subscriptions")
+    assert listed.status_code == 200
+    subscriptions = listed.json()["subscriptions"]
+    assert {subscription["endpoint"] for subscription in subscriptions} == {
+        "https://push.example.test/global",
+        "https://push.example.test/source",
+    }
+
+
+def test_notification_subscriptions_reject_invalid_source_scopes(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    invalid_response = client.post(
+        "/api/notifications/subscribe",
+        json={"endpoint": "https://push.example.test/invalid", "scope": "source"},
+    )
+    assert invalid_response.status_code == 400
+    assert "source" in invalid_response.json()["detail"].lower()
+
+    listed = client.get("/api/notifications/subscriptions")
+    assert listed.status_code == 200
+    assert listed.json()["subscriptions"] == []
+
+
+def test_notification_subscription_cleanup_removes_expired_and_invalid_records(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    main.NOTIFICATION_SUBSCRIPTIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    main.NOTIFICATION_SUBSCRIPTIONS_PATH.write_text(
+        json.dumps([
+            {"endpoint": "https://push.example.test/expired", "scope": "all", "expirationTime": 1},
+            {"endpoint": "https://push.example.test/invalid", "scope": "source", "source": ""},
+            {"endpoint": "https://push.example.test/ok", "scope": "all"},
+        ]),
+        encoding="utf-8",
+    )
+
+    listed = client.get("/api/notifications/subscriptions")
+    assert listed.status_code == 200
+    endpoints = [subscription["endpoint"] for subscription in listed.json()["subscriptions"]]
+    assert endpoints == ["https://push.example.test/ok"]
+
+
+def test_ready_notification_summary_caps_counts_and_preserves_source(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+
+    summary = main.build_ready_notification_summary(
+        [f"file-{index}.pdf" for index in range(120)],
+        source_name="nas-share-01",
+    )
+
+    assert summary["count"] == 99
+    assert summary["source"] == "nas-share-01"
+    assert summary["body"] == "99+ files are ready for review"
+
+
+def test_ready_notification_publisher_filters_by_source_and_prunes_dead_subscriptions(monkeypatch, tmp_path):
+    main, _, _ = load_api(monkeypatch, tmp_path)
+    main.NOTIFICATION_SUBSCRIPTIONS_PATH.write_text(
+        json.dumps([
+            {"endpoint": "https://push.example.test/all", "scope": "all"},
+            {"endpoint": "https://push.example.test/source", "scope": "source", "source": "nas-share-01"},
+            {"endpoint": "https://push.example.test/other-source", "scope": "source", "source": "nas-share-99"},
+            {"endpoint": "https://push.example.test/dead", "scope": "all"},
+        ]),
+        encoding="utf-8",
+    )
+
+    calls = []
+
+    class FakeResponse:
+        status_code = 200
+
+    def fake_post(url, json, timeout):
+        if url.endswith("/dead"):
+            raise RuntimeError("410 Gone")
+        calls.append({"url": url, "json": json})
+        return FakeResponse()
+
+    monkeypatch.setattr(main.httpx, "post", fake_post)
+
+    result = main.publish_ready_file_notifications(["invoice.pdf", "receipt.pdf"], source_name="nas-share-01")
+
+    assert result["count"] == 2
+    assert len(calls) == 2
+    assert {call["url"] for call in calls} == {"https://push.example.test/all", "https://push.example.test/source"}
+
+    remaining = main.read_notification_subscriptions()
+    assert [subscription["endpoint"] for subscription in remaining] == [
+        "https://push.example.test/all",
+        "https://push.example.test/source",
+    ]
+
+
+def test_index_exposes_notification_fallback_banner():
+    app_js = Path("frontend/app.js").read_text(encoding="utf-8")
+    assert "Notification permission was denied" in app_js
+    assert "Background notifications are unsupported" in app_js
 
 
 def test_get_default_classification_config(monkeypatch, tmp_path):

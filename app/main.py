@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 DEFAULT_DESTINEES: List[str] = []
-APP_VERSION = os.getenv("APP_VERSION", "2.0.0")
+APP_VERSION = os.getenv("APP_VERSION", "4.0.0")
 APP_REVISION = os.getenv("APP_REVISION", "unknown")
 
 
@@ -58,6 +58,8 @@ ANALYSIS_STATUS_PATH = resolve_runtime_path("ANALYSIS_STATUS_PATH", "/data/confi
 JOB_STATUS_PATH = resolve_runtime_path("JOB_STATUS_PATH", "/data/config/jobs.json")
 APPROVAL_AUDIT_PATH = resolve_runtime_path("APPROVAL_AUDIT_PATH", "/data/config/approval-audit.json")
 TEMP_PATH = resolve_runtime_path("TEMP_PATH", "/data/temp")
+NOTIFICATION_SUBSCRIPTIONS_PATH = resolve_runtime_path("NOTIFICATION_SUBSCRIPTIONS_PATH", "/data/config/notification-subscriptions.json")
+NOTIFICATION_SUBSCRIPTION_PATH = NOTIFICATION_SUBSCRIPTIONS_PATH
 FRONTEND_DIR = Path("/app/frontend") if Path("/app/frontend").exists() else Path(__file__).resolve().parent.parent / "frontend"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_ENDPOINT = os.getenv(
@@ -229,6 +231,50 @@ class SplitRequest(BaseModel):
 
     processing_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-f0-9]+$")
     split_pages: List[int] = Field(default_factory=list, max_length=100)
+
+
+class NotificationSubscriptionRequest(BaseModel):
+    """Persist a browser push subscription with either global or source-scoped delivery."""
+
+    endpoint: str = Field(min_length=1, max_length=1024)
+    scope: str = Field(default="all", min_length=1, max_length=32)
+    source: Optional[str] = Field(default=None, max_length=256)
+    keys: Optional[Dict[str, str]] = None
+    expirationTime: Optional[float] = None
+
+    @field_validator("scope")
+    @classmethod
+    def validate_scope(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized in {"all", "global"}:
+            return "all"
+        if normalized == "source":
+            return "source"
+        raise ValueError("Scope must be 'all' or 'source'")
+
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        return cleaned
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Endpoint cannot be empty")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_source_scope(self):
+        if self.scope == "source" and not self.source:
+            raise ValueError("source is required for source-scoped subscriptions")
+        return self
 
 
 class SplitOutput(BaseModel):
@@ -493,6 +539,180 @@ def write_document_state(filename: str, status: str, **details: object) -> None:
     states[filename] = {**existing, "status": status, **details}
     DOCUMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     DOCUMENTS_PATH.write_text(json.dumps(states, indent=2), encoding="utf-8")
+
+
+def normalize_notification_subscription(raw: object) -> Optional[dict]:
+    if not isinstance(raw, dict):
+        return None
+
+    endpoint = str(raw.get("endpoint", "")).strip()
+    if not endpoint:
+        return None
+
+    scope = str(raw.get("scope", "all")).strip().lower()
+    if scope in {"global", "all"}:
+        scope = "all"
+    elif scope == "source":
+        scope = "source"
+    else:
+        return None
+
+    source = raw.get("source")
+    if scope == "source":
+        source_name = str(source).strip() if source is not None else ""
+        if not source_name:
+            return None
+    else:
+        source_name = None
+
+    expiration_value = raw.get("expirationTime")
+    if expiration_value is not None:
+        try:
+            expiration_ts = float(expiration_value)
+        except (TypeError, ValueError):
+            return None
+        if expiration_ts > 0 and expiration_ts <= datetime.now(timezone.utc).timestamp() * 1000:
+            return None
+
+    subscription = {
+        "endpoint": endpoint,
+        "scope": scope,
+        "source": source_name,
+    }
+    for key, value in raw.items():
+        if key in {"endpoint", "scope", "source", "expirationTime"}:
+            continue
+        if value is not None:
+            subscription[key] = value
+    return subscription
+
+
+def read_notification_subscriptions() -> List[dict]:
+    if not NOTIFICATION_SUBSCRIPTIONS_PATH.exists():
+        return []
+    try:
+        data = json.loads(NOTIFICATION_SUBSCRIPTIONS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    cleaned: List[dict] = []
+    seen_endpoints = set()
+    for item in data:
+        normalized = normalize_notification_subscription(item)
+        if normalized is None:
+            continue
+        endpoint = normalized["endpoint"]
+        if endpoint in seen_endpoints:
+            continue
+        seen_endpoints.add(endpoint)
+        cleaned.append(normalized)
+
+    if cleaned != data:
+        write_notification_subscriptions(cleaned)
+    return cleaned
+
+
+def write_notification_subscriptions(subscriptions: List[dict]) -> None:
+    normalized = []
+    seen_endpoints = set()
+    for subscription in subscriptions:
+        record = normalize_notification_subscription(subscription)
+        if record is None:
+            continue
+        endpoint = record["endpoint"]
+        if endpoint in seen_endpoints:
+            continue
+        seen_endpoints.add(endpoint)
+        normalized.append(record)
+    NOTIFICATION_SUBSCRIPTIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    NOTIFICATION_SUBSCRIPTIONS_PATH.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
+
+
+def build_ready_notification_summary(filenames: List[str], source_name: Optional[str] = None) -> dict:
+    """Build one aggregated notification body for a polling window without notifying per file."""
+    unique_names = []
+    seen = set()
+    for filename in filenames:
+        if filename is None:
+            continue
+        cleaned = str(filename).strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        unique_names.append(cleaned)
+
+    count = len(unique_names)
+    capped_count = min(count, 99)
+    if count > 99:
+        body = "99+ files are ready for review"
+    elif count == 1:
+        body = "1 file is ready for review"
+    else:
+        body = f"{count} files are ready for review"
+
+    return {
+        "count": capped_count,
+        "source": source_name,
+        "title": "Files ready for review",
+        "body": body,
+        "count_cap": capped_count,
+    }
+
+
+def publish_ready_file_notifications(filenames: List[str], source_name: Optional[str] = None) -> dict:
+    """Fan out one summary notification to matching subscriptions and prune dead endpoints."""
+    summary = build_ready_notification_summary(filenames, source_name=source_name)
+    if not filenames:
+        return {"count": 0, "delivered": 0, "failed": 0, "source": source_name}
+
+    subscriptions = read_notification_subscriptions()
+    deliveries = 0
+    failures = 0
+    survivors = []
+
+    for subscription in subscriptions:
+        scope = str(subscription.get("scope", "all")).strip().lower()
+        if scope == "source":
+            if not source_name:
+                continue
+            if str(subscription.get("source", "")).strip() != source_name:
+                continue
+        elif scope not in {"all", "global"}:
+            continue
+
+        endpoint = str(subscription.get("endpoint", "")).strip()
+        payload = {
+            "event": "files_ready_for_review",
+            "title": summary["title"],
+            "body": summary["body"],
+            "count": summary["count"],
+            "source": source_name,
+            "click_path": "/",
+        }
+
+        try:
+            response = httpx.post(endpoint, json=payload, timeout=10)
+            if response.status_code >= 400:
+                raise RuntimeError(f"notification returned HTTP {response.status_code}")
+            deliveries += 1
+            survivors.append(subscription)
+        except Exception as exc:
+            failures += 1
+            message = str(exc).lower()
+            if any(marker in message for marker in ["410", "404", "gone", "expired", "invalid", "unsubscribed"]):
+                continue
+            survivors.append(subscription)
+
+    write_notification_subscriptions(survivors)
+    return {
+        "count": summary["count"],
+        "delivered": deliveries,
+        "failed": failures,
+        "source": source_name,
+    }
 
 
 def cleanup_private_documents(now: Optional[datetime] = None) -> List[str]:
@@ -1228,6 +1448,68 @@ def update_classification_config(config: ClassificationConfig) -> Classification
     except OSError as exc:
         raise HTTPException(status_code=500, detail="Unable to persist classification configuration") from exc
     return response_for(config.destinees)
+
+
+@app.get("/api/notifications/subscriptions")
+def list_notification_subscriptions() -> dict:
+    """Return the valid browser subscriptions currently stored for delivery."""
+    subscriptions = read_notification_subscriptions()
+    return {"subscriptions": subscriptions, "count": len(subscriptions)}
+
+
+@app.post("/api/notifications/subscribe")
+def subscribe_to_notifications(request: dict) -> dict:
+    """Persist a browser push subscription in either global or source-scoped mode."""
+    try:
+        validated = NotificationSubscriptionRequest.model_validate(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if validated.scope == "source" and not validated.source:
+        raise HTTPException(status_code=400, detail="source is required for source-scoped subscriptions")
+
+    current = read_notification_subscriptions()
+    normalized = {
+        "endpoint": validated.endpoint,
+        "scope": validated.scope,
+        "source": validated.source if validated.scope == "source" else None,
+    }
+    if validated.keys is not None:
+        normalized["keys"] = validated.keys
+    if validated.expirationTime is not None:
+        normalized["expirationTime"] = validated.expirationTime
+
+    updated = []
+    replaced = False
+    for subscription in current:
+        if subscription.get("endpoint") == validated.endpoint:
+            updated.append(normalized)
+            replaced = True
+        else:
+            updated.append(subscription)
+    if not replaced:
+        updated.append(normalized)
+
+    write_notification_subscriptions(updated)
+    return normalized
+
+
+@app.delete("/api/notifications/subscribe")
+def unsubscribe_from_notifications(payload: Optional[NotificationSubscriptionRequest] = None) -> dict:
+    """Remove a browser subscription by endpoint. Missing records are treated as a no-op."""
+    endpoint = None
+    if payload is not None:
+        endpoint = payload.endpoint
+    else:
+        endpoint = ""
+
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Endpoint is required")
+
+    current = read_notification_subscriptions()
+    remaining = [subscription for subscription in current if subscription.get("endpoint") != endpoint]
+    write_notification_subscriptions(remaining)
+    return {"status": "removed", "endpoint": endpoint}
 
 
 @app.post("/api/classification/route")

@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 4.0.0 - 2026-09-04
+
+### Added
+- Added source-aware notification subscriptions so users can subscribe globally or only for a selected source.
+- Added browser notification fallback messaging and in-app status handling for unsupported or denied browsers.
+- Added notification cleanup for expired or invalid subscription records.
+
+### Changed
+- Kept browser delivery opt-in and graceful in-app fallback behavior when background notifications are unavailable.
+- Updated the notification status banner to reflect browser capability and permission state without blocking the review workflow.
+
+### Fixed
+- Fixed the notification subscription validation path so source-scoped subscriptions reject missing source identifiers cleanly.
+- Preserved the wrapper-based capability contract before falling back to direct browser API checks.
+
 ## 3.0.0 - 2026-09-02
 
 ### Added

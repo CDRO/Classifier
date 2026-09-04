@@ -59,22 +59,116 @@ let shelvedFiles = new Set();
 let browserNotificationsEnabled = false;
 let lastInboxState = new Map();
 
+function getCapabilities() {
+  const wrapper = window.pwaWrapper;
+  if (wrapper && typeof wrapper.getCapabilities === "function") {
+    try {
+      return wrapper.getCapabilities();
+    } catch {
+      // Fall back to host-browser support detection below.
+    }
+  }
+
+  const notificationSupported = "Notification" in window;
+  const serviceWorkerSupported = Boolean(window.navigator?.serviceWorker?.register);
+  return {
+    notifications: notificationSupported ? "supported" : "unsupported",
+    serviceWorker: serviceWorkerSupported ? "supported" : "unsupported",
+    installable: "unsupported",
+    push: typeof window.PushManager === "function" ? "supported" : "unsupported",
+  };
+}
+
+function getNotificationState() {
+  const wrapper = window.pwaWrapper;
+  if (wrapper && typeof wrapper.getNotificationState === "function") {
+    try {
+      const state = wrapper.getNotificationState();
+      if (state && typeof state === "object") {
+        return state;
+      }
+    } catch {
+      // Fall through to the browser/native state below.
+    }
+  }
+
+  const notificationSupported = "Notification" in window;
+  const permission = notificationSupported ? Notification.permission : "unsupported";
+  const subscription = typeof window.PushManager === "function" ? "unsubscribed" : "unsupported";
+  return {
+    permission: permission === "granted" || permission === "denied" || permission === "default" ? permission : "unsupported",
+    subscription,
+    fallback: permission === "denied" || !notificationSupported ? "in_app_only" : "browser",
+  };
+}
+
+function ensureWrapperBridge() {
+  if (!window.pwaWrapper) {
+    window.pwaWrapper = {
+      getCapabilities,
+      getNotificationState,
+    };
+  }
+  return window.pwaWrapper;
+}
+
+function updateNotificationStatusBanner() {
+  const statusNode = document.querySelector("#notification-status");
+  if (!statusNode) return;
+
+  const state = getNotificationState();
+  const permission = state.permission || "unsupported";
+  const normalized = permission === "granted" ? "enabled" : permission === "default" ? "available" : permission === "denied" ? "denied" : "unsupported";
+  statusNode.dataset.notificationStatus = normalized;
+
+  if (permission === "granted") {
+    statusNode.textContent = "Background notifications are enabled for this browser.";
+    return;
+  }
+
+  if (permission === "denied") {
+    statusNode.textContent = "Notification permission was denied, so the app will stay in-app-only for delivery.";
+    return;
+  }
+
+  if (permission === "unsupported") {
+    statusNode.textContent = "Background notifications are unsupported in this browser; in-app review remains available.";
+    return;
+  }
+
+  statusNode.textContent = "Background notifications are available. Use the toggle to enable them for new ready files.";
+}
+
 function updateBrowserNotificationToggle() {
   if (!browserNotificationToggle) return;
-  const supported = "Notification" in window;
-  const permission = supported ? Notification.permission : "unsupported";
-  const enabled = supported && browserNotificationsEnabled && permission === "granted";
-  browserNotificationToggle.disabled = !supported;
+  const state = getNotificationState();
+  const supported = state.permission !== "unsupported" && state.fallback !== "in_app_only";
+  const enabled = state.permission === "granted" && browserNotificationsEnabled;
+  browserNotificationToggle.disabled = !supported || state.permission === "denied";
   browserNotificationToggle.textContent = !supported
-    ? "Notifications unsupported"
+    ? "Notifications unavailable"
     : enabled
       ? "Notifications enabled"
-      : "Enable notifications";
+      : state.permission === "denied"
+        ? "Permission denied"
+        : "Enable notifications";
   browserNotificationToggle.setAttribute("aria-pressed", String(enabled));
+  updateNotificationStatusBanner();
 }
 
 async function requestBrowserNotifications() {
+  ensureWrapperBridge();
+
   if (!("Notification" in window)) {
+    browserNotificationsEnabled = false;
+    localStorage.setItem("classifier.notifications", "disabled");
+    updateBrowserNotificationToggle();
+    return;
+  }
+
+  if (Notification.permission === "denied") {
+    browserNotificationsEnabled = false;
+    localStorage.setItem("classifier.notifications", "disabled");
     updateBrowserNotificationToggle();
     return;
   }
