@@ -60,6 +60,69 @@ let shelvedFiles = new Set();
 let browserNotificationsEnabled = false;
 let lastInboxState = new Map();
 
+const SERVICE_WORKER_URL = "/service-worker.js";
+const WRAPPER_VERSION = "v1.0.0";
+
+function ensureWrapperBridge() {
+  if (window?.pwaWrapper && typeof window.pwaWrapper === "object") {
+    if (typeof window.pwaWrapper.initialize !== "function") {
+      window.pwaWrapper.initialize = async ({ apiVersion } = {}) => {
+        const requestedVersion = typeof apiVersion === "string" && apiVersion.trim() ? apiVersion : WRAPPER_VERSION;
+        if (!("serviceWorker" in navigator) || typeof navigator.serviceWorker.register !== "function") {
+          return { fallback: "in_app_only", apiVersion: requestedVersion };
+        }
+
+        try {
+          const registration = await navigator.serviceWorker.register(
+            `${SERVICE_WORKER_URL}?wrapper_version=${encodeURIComponent(requestedVersion)}`,
+            { updateViaCache: "none" },
+          );
+          await registration.update();
+          return registration;
+        } catch (error) {
+          console.warn("Wrapper service worker registration failed; keeping app in in-app-only mode.", error);
+          return { fallback: "in_app_only", apiVersion: requestedVersion, error };
+        }
+      };
+    }
+    return window.pwaWrapper;
+  }
+
+  const listeners = new Set();
+  const wrapper = {
+    getCapabilities: (environment = window) => getCapabilities(environment),
+    getNotificationState: (environment = window) => getNotificationState(environment),
+    onStateChange: (listener) => {
+      if (typeof listener !== "function") {
+        return () => {};
+      }
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    initialize: async ({ apiVersion } = {}) => {
+      const requestedVersion = typeof apiVersion === "string" && apiVersion.trim() ? apiVersion : WRAPPER_VERSION;
+      if (!("serviceWorker" in navigator) || typeof navigator.serviceWorker.register !== "function") {
+        return { fallback: "in_app_only", apiVersion: requestedVersion };
+      }
+
+      try {
+        const registration = await navigator.serviceWorker.register(
+          `${SERVICE_WORKER_URL}?wrapper_version=${encodeURIComponent(requestedVersion)}`,
+          { updateViaCache: "none" },
+        );
+        await registration.update();
+        return registration;
+      } catch (error) {
+        console.warn("Wrapper service worker registration failed; keeping app in in-app-only mode.", error);
+        return { fallback: "in_app_only", apiVersion: requestedVersion, error };
+      }
+    },
+  };
+
+  window.pwaWrapper = wrapper;
+  return wrapper;
+}
+
 function getCapabilities(environment = window) {
   const browserEnvironment = environment || window;
   const wrapper = browserEnvironment?.pwaWrapper;
@@ -122,6 +185,7 @@ function renderNotificationStatus() {
   const capabilitySnapshot = getCapabilities(window);
   const notificationState = getNotificationState(window);
   const degraded = capabilitySnapshot.serviceWorker === "unsupported"
+    || capabilitySnapshot.notifications === "unsupported"
     || capabilitySnapshot.notifications === "denied"
     || capabilitySnapshot.push === "unsupported";
 
@@ -134,10 +198,12 @@ function renderNotificationStatus() {
   let message = "Background notifications are unavailable here. In-app alerts remain available.";
   if (notificationState.permission === "denied") {
     message = "Notifications are disabled in this browser. In-app alerts remain available.";
-  } else if (capabilitySnapshot.push === "unsupported") {
-    message = "Background push is unavailable here. In-app updates remain enabled.";
+  } else if (capabilitySnapshot.notifications === "unsupported") {
+    message = "Notifications are not supported in this browser. In-app alerts remain available.";
   } else if (capabilitySnapshot.serviceWorker === "unsupported") {
     message = "This browser cannot keep background notifications active. In-app alerts remain available.";
+  } else if (capabilitySnapshot.push === "unsupported") {
+    message = "Background push is unavailable here. In-app updates remain enabled.";
   }
 
   notificationStatus.hidden = false;
@@ -151,16 +217,18 @@ function updateBrowserNotificationToggle() {
   const state = getNotificationState(window);
   const permission = state.permission || "default";
   const enabled = capabilitySnapshot.notifications === "supported" && browserNotificationsEnabled && permission === "granted";
-  const disabled = capabilitySnapshot.notifications === "unsupported" || permission === "denied" || capabilitySnapshot.serviceWorker === "unsupported";
+  const disabled = capabilitySnapshot.notifications === "unsupported" || permission === "denied";
 
   browserNotificationToggle.disabled = disabled;
   browserNotificationToggle.textContent = capabilitySnapshot.notifications === "unsupported"
     ? "Notifications unsupported"
-    : permission === "denied"
-      ? "Notifications blocked"
-      : enabled
-        ? "Notifications enabled"
-        : "Enable notifications";
+    : capabilitySnapshot.serviceWorker === "unsupported"
+      ? "Background notifications unavailable"
+      : permission === "denied"
+        ? "Notifications blocked"
+        : enabled
+          ? "Notifications enabled"
+          : "Enable notifications";
   browserNotificationToggle.setAttribute("aria-pressed", String(enabled));
   renderNotificationStatus();
 }
@@ -1621,7 +1689,7 @@ document.querySelector("#destinee-form").addEventListener("submit", async (event
 });
 
 async function initialize() {
-  const wrapper = window?.pwaWrapper;
+  const wrapper = ensureWrapperBridge();
   if (wrapper && typeof wrapper.initialize === "function") {
     try {
       await wrapper.initialize({ apiVersion: "1.0.0" });
