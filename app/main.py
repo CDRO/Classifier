@@ -609,10 +609,14 @@ def read_notification_subscriptions() -> List[dict]:
             continue
         seen_endpoints.add(endpoint)
         cleaned.append(normalized)
-
-    if cleaned != data:
-        write_notification_subscriptions(cleaned)
     return cleaned
+
+
+def prune_invalid_notification_subscriptions() -> List[dict]:
+    """Persist only valid, deduplicated subscriptions and remove stale records."""
+    current = read_notification_subscriptions()
+    write_notification_subscriptions(current)
+    return current
 
 
 def write_notification_subscriptions(subscriptions: List[dict]) -> None:
@@ -1453,7 +1457,7 @@ def update_classification_config(config: ClassificationConfig) -> Classification
 @app.get("/api/notifications/subscriptions")
 def list_notification_subscriptions() -> dict:
     """Return the valid browser subscriptions currently stored for delivery."""
-    subscriptions = read_notification_subscriptions()
+    subscriptions = prune_invalid_notification_subscriptions()
     return {"subscriptions": subscriptions, "count": len(subscriptions)}
 
 
@@ -1464,9 +1468,6 @@ def subscribe_to_notifications(request: dict) -> dict:
         validated = NotificationSubscriptionRequest.model_validate(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    if validated.scope == "source" and not validated.source:
-        raise HTTPException(status_code=400, detail="source is required for source-scoped subscriptions")
 
     current = read_notification_subscriptions()
     normalized = {
@@ -2021,6 +2022,10 @@ def prepare_document(filename: str, async_mode: bool = Query(False, alias="async
         "status": "in_review",
     }
 
+    if response["queue_status"] == "ready_for_review":
+        source_name = resolve_document_source_name(filename)
+        publish_ready_file_notifications([filename], source_name=source_name)
+
     if async_mode:
         job_id = create_job_record(filename, processing_id, route_details, page_count)
         async_payload = {**response, "job_id": job_id, "processing_id": processing_id, "status": "queued"}
@@ -2031,6 +2036,20 @@ def prepare_document(filename: str, async_mode: bool = Query(False, alias="async
         )
 
     return response
+
+
+def resolve_document_source_name(filename: str) -> Optional[str]:
+    """Return the matching configured source root for a document, or None when it is not located under a known source."""
+    try:
+        relative_name = normalize_relative_document_path(filename)
+    except HTTPException:
+        return None
+
+    for source_root in read_source_roots():
+        candidate = (source_root / relative_name).resolve()
+        if candidate.is_relative_to(source_root.resolve()) and candidate.is_file():
+            return str(source_root)
+    return None
 
 
 @app.post("/api/documents/{filename:path}/analyze")
