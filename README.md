@@ -210,6 +210,39 @@ The next release is intentionally narrow and focused on queueing and the user-fa
 
 The current project stance is intentionally simple: expose the source and destination as mounted folders, let n8n or another automation tool handle document transport, and keep the classifier focused on the review and classification workflow.
 
+## On-demand mode (deep sleep)
+
+By default the classifier scans its source folders every 30 seconds. Each scan also re-hashes
+the archive, so on a NAS that's steady network traffic and disks that never spin down. A host
+that stops the app when idle, and starts it again on the next request, wants the opposite:
+
+| Setting | Behavior |
+|---|---|
+| `BACKGROUND_SCAN_SECONDS=30` (default) | Scans every 30 s, as before |
+| `BACKGROUND_SCAN_SECONDS=0` | **On-demand:** one prewarm pass at startup (catches files that arrived while asleep), then only on request |
+
+In on-demand mode, the workflow that drops a PDF into the inbox (n8n) calls the existing
+endpoint afterwards:
+
+```
+POST /api/classification/prewarm
+```
+
+That request also wakes a sleeping app. The host's idle logic reads:
+
+```
+GET /api/activity
+-> {"busy": false, "in_flight": 0, "idle_seconds": 840, "last_activity": "...",
+    "background_scan_seconds": 0, "next_private_deletion": "2026-11-30T08:00:00+00:00"}
+```
+
+- Don't stop the app while `busy` is true. Polling `/api/activity` itself doesn't count as
+  activity.
+- **Wake the app by `next_private_deletion`**, so private documents are still deleted on time
+  (see Private Retention Guarantee). Private deletion only runs while the app runs.
+- In the browser, a request that waits more than 1.5 s for the app to wake shows a short
+  "Waking up the classifier…" notice.
+
 ## Private Retention Guarantee
 
 Private documents are not only marked; they are enforced by a persisted expiry timestamp and a background cleanup loop.

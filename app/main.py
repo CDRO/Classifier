@@ -9,8 +9,10 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -18,7 +20,7 @@ from urllib.parse import quote
 
 import httpx
 import pymupdf as fitz
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -345,6 +347,34 @@ class MergeDocumentsRequest(BaseModel):
 _cleanup_task: Optional[asyncio.Task[None]] = None
 _prewarm_task: Optional[asyncio.Task[None]] = None
 
+# On-demand mode (deep sleep). On a host that stops the app when idle and starts it again on the
+# next request, a polling loop keeps it awake forever: every scan reads the source folders and
+# re-hashes the archive (on a NAS that also keeps its disks spinning). BACKGROUND_SCAN_SECONDS=0
+# turns the loop off: one pass at startup catches what arrived while asleep, then work happens
+# only on request (n8n calls POST /api/classification/prewarm after dropping a file).
+BACKGROUND_SCAN_SECONDS = max(0, int(os.getenv("BACKGROUND_SCAN_SECONDS", "30")))
+
+# What the host's idle logic reads from GET /api/activity: is anything running, and since when
+# has nothing happened. Requests run in FastAPI's thread pool, hence the lock.
+_activity_lock = threading.Lock()
+_in_flight = 0
+_last_activity = time.time()
+
+
+@contextmanager
+def tracked_activity():
+    """Count a request or background pass as activity while it runs."""
+    global _in_flight, _last_activity
+    with _activity_lock:
+        _in_flight += 1
+        _last_activity = time.time()
+    try:
+        yield
+    finally:
+        with _activity_lock:
+            _in_flight -= 1
+            _last_activity = time.time()
+
 
 async def private_retention_worker() -> None:
     """Run periodic cleanup so expired private files are removed even without a fresh user request."""
@@ -359,15 +389,21 @@ async def private_retention_worker() -> None:
 
 
 async def prewarm_worker() -> None:
-    """Scan source folders and precompute metadata for pending PDFs before the user opens the web UI."""
+    """Scan source folders and precompute metadata for pending PDFs before the user opens the web UI.
+
+    Runs every BACKGROUND_SCAN_SECONDS; with 0 it runs once (on-demand mode) and returns.
+    """
     while True:
         try:
-            processed = prewarm_pending_documents()
+            with tracked_activity():
+                processed = prewarm_pending_documents()
             if processed:
                 logger.info("Background prewarm processed pending documents", extra={"count": processed})
         except Exception as exc:  # pragma: no cover - defensive guard for background task
             logger.exception("Background prewarm failed", exc_info=exc)
-        await asyncio.sleep(30)
+        if BACKGROUND_SCAN_SECONDS <= 0:
+            return
+        await asyncio.sleep(BACKGROUND_SCAN_SECONDS)
 
 
 def prewarm_pending_documents(limit: Optional[int] = None) -> int:
@@ -472,6 +508,15 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def record_activity(request: Request, call_next):
+    """Every request except the idle probe itself counts as activity."""
+    if request.url.path == "/api/activity":
+        return await call_next(request)
+    with tracked_activity():
+        return await call_next(request)
 
 
 @app.get("/")
@@ -1411,6 +1456,39 @@ def ingestion_status() -> dict:
         "input_path": str(roots[0]) if roots else str(SOURCE_PATH),
         "source_roots": [str(path) for path in roots],
         "ready": any(path.exists() and path.is_dir() for path in roots),
+    }
+
+
+def next_private_deletion() -> Optional[str]:
+    """Earliest pending delete_after among private documents (ISO 8601), or None."""
+    pending = []
+    for details in read_document_states().values():
+        if not isinstance(details, dict) or not details.get("private") or not details.get("delete_after"):
+            continue
+        try:
+            pending.append(datetime.fromisoformat(str(details["delete_after"])))
+        except ValueError:
+            continue
+    return min(pending).isoformat() if pending else None
+
+
+@app.get("/api/activity")
+def activity() -> dict:
+    """For a host that lets the app sleep when idle. Polling this does not count as activity.
+
+    The host must not stop the app while busy is true, and must wake it again by
+    next_private_deletion so private documents are deleted on time.
+    """
+    with _activity_lock:
+        in_flight = _in_flight
+        last = _last_activity
+    return {
+        "busy": in_flight > 0,
+        "in_flight": in_flight,
+        "idle_seconds": int(max(0, time.time() - last)),
+        "last_activity": datetime.fromtimestamp(last, timezone.utc).isoformat(),
+        "background_scan_seconds": BACKGROUND_SCAN_SECONDS,
+        "next_private_deletion": next_private_deletion(),
     }
 
 

@@ -264,3 +264,21 @@ footer { margin-top: 24px; padding: 18px 0 0; color: var(--muted); border-top: 1
   .button { justify-content: center; }
   footer { align-items: flex-start; flex-direction: column; gap: 8px; }
 }
+
+/* Deep sleep: shown while a request waits for the app to wake up (wake-notice.js). */
+.wake-notice {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: 0.95rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+.wake-notice[hidden] {
+  display: none;
+}

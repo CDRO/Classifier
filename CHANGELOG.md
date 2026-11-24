@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Added
+- On-demand mode for hosts that let the classifier sleep when idle (#53): `BACKGROUND_SCAN_SECONDS=0` turns off the 30-second background scan, so one prewarm pass runs at startup and after that only on request (`POST /api/classification/prewarm`, e.g. from n8n).
+- `GET /api/activity` reports busy and idle state and the next private deletion, so a host can stop the app safely and wake it in time. Polling it does not count as activity.
+- A "Waking up the classifier…" notice while a request takes longer than 1.5 s.
+
 ## 4.0.0 - 2026-09-04
 
 ### Added
