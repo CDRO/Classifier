@@ -52,6 +52,32 @@ Classifier exposes a native in-app fallback for browsers that cannot support bac
 - The notification toggle is disabled in degraded states instead of throwing or leaving the page in an inconsistent state.
 
 This keeps the review flow usable even when the browser cannot maintain background delivery or when the user has blocked notification permission.
+## Upgrading
+
+### To the release with on-demand mode (#53): background scanning is now off
+
+> ⚠️ **Action needed if new PDFs should still be picked up automatically.**
+> `BACKGROUND_SCAN_SECONDS` now defaults to `0`, so the classifier **no longer scans its inbox
+> every 30 seconds**. New PDFs show up at the next start, or when something calls the prewarm
+> URL. Without one of the two steps below, new files wait until the next restart.
+
+Do **one** of these:
+
+1. **Recommended: let n8n tell the classifier** when it has dropped a file. Add an **HTTP
+   Request** node after the "write file" step:
+   - Method: `POST`
+   - URL: `https://classifier.example.com/api/classification/prewarm` (your classifier's address)
+   - Body: none
+
+   Test it by hand first:
+   ```bash
+   curl -fsS -X POST https://classifier.example.com/api/classification/prewarm
+   ```
+2. **Keep the old polling:** set `BACKGROUND_SCAN_SECONDS=30` in the container's environment
+   (`.env` or `docker-compose.yml`) and restart it.
+
+Details: [On-demand mode](#on-demand-mode-deep-sleep).
+
 ## Getting Started
 
 ### 1. Install Dependencies
@@ -212,34 +238,49 @@ The current project stance is intentionally simple: expose the source and destin
 
 ## On-demand mode (deep sleep)
 
-By default the classifier scans its source folders every 30 seconds. Each scan also re-hashes
-the archive, so on a NAS that's steady network traffic and disks that never spin down. A host
-that stops the app when idle, and starts it again on the next request, wants the opposite:
+**Default since this release: `BACKGROUND_SCAN_SECONDS=0`** (see [Upgrading](#upgrading)).
+
+Polling used to scan the source folders every 30 seconds, and every scan also re-hashed the
+archive. On a NAS that's steady network traffic and disks that never spin down. Now the
+classifier only works when something happens, and a host can let it sleep in between:
 
 | Setting | Behavior |
 |---|---|
-| `BACKGROUND_SCAN_SECONDS=30` (default) | Scans every 30 s, as before |
-| `BACKGROUND_SCAN_SECONDS=0` | **On-demand:** one prewarm pass at startup (catches files that arrived while asleep), then only on request |
+| `BACKGROUND_SCAN_SECONDS=0` (**default**) | **On-demand:** one prewarm pass at startup (catches files that arrived while asleep), then only on request |
+| `BACKGROUND_SCAN_SECONDS=30` | Polls every 30 s (the old behavior); any number of seconds works |
 
-In on-demand mode, the workflow that drops a PDF into the inbox (n8n) calls the existing
-endpoint afterwards:
+### Which URL to call
 
-```
-POST /api/classification/prewarm
-```
-
-That request also wakes a sleeping app. The host's idle logic reads:
+After the workflow (n8n) has placed a PDF in the inbox, it calls, replacing
+`classifier.example.com` with your classifier's address:
 
 ```
-GET /api/activity
+POST https://classifier.example.com/api/classification/prewarm
+```
+
+```bash
+curl -fsS -X POST https://classifier.example.com/api/classification/prewarm
+# -> {"processed": 1, "status": "ok"}
+```
+
+In n8n, that's an **HTTP Request** node after the file is written: method `POST`, URL as above,
+no body. The call does the scan, prepare and analyze pass for every pending PDF, and it also
+wakes a sleeping classifier. If several files arrive at once, one call after the last is
+enough.
+
+### For the host: is it idle?
+
+```
+GET https://classifier.example.com/api/activity
 -> {"busy": false, "in_flight": 0, "idle_seconds": 840, "last_activity": "...",
     "background_scan_seconds": 0, "next_private_deletion": "2026-11-30T08:00:00+00:00"}
 ```
 
 - Don't stop the app while `busy` is true. Polling `/api/activity` itself doesn't count as
   activity.
-- **Wake the app by `next_private_deletion`**, so private documents are still deleted on time
-  (see Private Retention Guarantee). Private deletion only runs while the app runs.
+- **Wake the app by `next_private_deletion`** (e.g. with a call to `/api/activity` at that time),
+  so private documents are still deleted on time (see Private Retention Guarantee). Private
+  deletion only runs while the app runs.
 - In the browser, a request that waits more than 1.5 s for the app to wake shows a short
   "Waking up the classifier…" notice.
 

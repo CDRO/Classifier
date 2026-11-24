@@ -349,10 +349,11 @@ _prewarm_task: Optional[asyncio.Task[None]] = None
 
 # On-demand mode (deep sleep). On a host that stops the app when idle and starts it again on the
 # next request, a polling loop keeps it awake forever: every scan reads the source folders and
-# re-hashes the archive (on a NAS that also keeps its disks spinning). BACKGROUND_SCAN_SECONDS=0
-# turns the loop off: one pass at startup catches what arrived while asleep, then work happens
-# only on request (n8n calls POST /api/classification/prewarm after dropping a file).
-BACKGROUND_SCAN_SECONDS = max(0, int(os.getenv("BACKGROUND_SCAN_SECONDS", "30")))
+# re-hashes the archive (on a NAS that also keeps its disks spinning). So the default is 0: no
+# loop, one pass at startup catches what arrived while asleep, then work happens only on request
+# (n8n calls POST /api/classification/prewarm after dropping a file). Set a number of seconds,
+# e.g. BACKGROUND_SCAN_SECONDS=30, for the old polling behavior. See README "Upgrading".
+BACKGROUND_SCAN_SECONDS = max(0, int(os.getenv("BACKGROUND_SCAN_SECONDS", "0")))
 
 # What the host's idle logic reads from GET /api/activity: is anything running, and since when
 # has nothing happened. Requests run in FastAPI's thread pool, hence the lock.

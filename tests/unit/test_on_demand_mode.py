@@ -28,9 +28,16 @@ def load_api(monkeypatch, tmp_path, scan_seconds=None):
     return importlib.reload(main)
 
 
-def test_default_scan_interval_is_unchanged(monkeypatch, tmp_path):
+def test_default_is_on_demand_mode(monkeypatch, tmp_path):
     main = load_api(monkeypatch, tmp_path)
-    assert main.BACKGROUND_SCAN_SECONDS == 30
+    assert main.BACKGROUND_SCAN_SECONDS == 0
+
+
+def test_readme_has_an_upgrade_note_for_the_new_default():
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "## Upgrading" in readme
+    assert "BACKGROUND_SCAN_SECONDS=30" in readme
+    assert "https://classifier.example.com/api/classification/prewarm" in readme
 
 
 def test_on_demand_mode_runs_one_prewarm_pass_and_stops(monkeypatch, tmp_path):
