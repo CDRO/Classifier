@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 5.0.2 - 2026-11-25
+
+### Fixed
+- The prewarm pass (at startup, every `BACKGROUND_SCAN_SECONDS`, or after `POST /api/classification/prewarm`) runs in a worker thread. It does OCR and Gemini calls synchronously and used to block the event loop, so the web UI, the API and the container health check got no answer until it finished; on a large inbox behind a network mount that took minutes.
+
 ## 5.0.1 - 2026-11-25
 
 ### Fixed

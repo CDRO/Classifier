@@ -27,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 DEFAULT_DESTINEES: List[str] = []
-APP_VERSION = os.getenv("APP_VERSION", "5.0.1")
+APP_VERSION = os.getenv("APP_VERSION", "5.0.2")
 APP_REVISION = os.getenv("APP_REVISION", "unknown")
 
 
@@ -396,8 +396,12 @@ async def prewarm_worker() -> None:
     """
     while True:
         try:
+            # In a worker thread: the pass does OCR and Gemini calls synchronously. Run on the event
+            # loop, it blocked every request (and the health check) until it finished, which on a
+            # large inbox behind a network mount took minutes. FastAPI already runs the sync
+            # endpoints that call the same functions in its thread pool.
             with tracked_activity():
-                processed = prewarm_pending_documents()
+                processed = await asyncio.to_thread(prewarm_pending_documents)
             if processed:
                 logger.info("Background prewarm processed pending documents", extra={"count": processed})
         except Exception as exc:  # pragma: no cover - defensive guard for background task

@@ -122,3 +122,21 @@ def test_frontend_shows_a_wake_notice_for_slow_requests():
         assert 'id="wake-notice"' in html, page
         # The wrapper has to wrap fetch before the page script makes its first request.
         assert html.index("wake-notice.js") < html.index(script), page
+
+
+def test_prewarm_pass_does_not_block_the_event_loop(monkeypatch, tmp_path):
+    """A long prewarm pass (OCR, Gemini) must not stop the server from answering, e.g. the health check."""
+    import time
+
+    main = load_api(monkeypatch, tmp_path, scan_seconds=0)
+    monkeypatch.setattr(main, "prewarm_pending_documents", lambda: time.sleep(1.0) or 0)
+
+    async def scenario():
+        task = asyncio.create_task(main.prewarm_worker())
+        started = time.monotonic()
+        await asyncio.sleep(0.05)              # meanwhile the 1 s pass runs; a request would wait here
+        waited = time.monotonic() - started
+        await task
+        return waited
+
+    assert asyncio.run(scenario()) < 0.5
