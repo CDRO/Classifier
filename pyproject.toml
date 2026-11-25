@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "document-classifier"
-version = "5.0.0"
+version = "5.0.1"
 description = "Intelligent document processing pipeline with pluggable storage backends"
 readme = "README.md"
 requires-python = ">=3.9"
