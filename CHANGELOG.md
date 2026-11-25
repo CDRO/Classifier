@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 5.0.1 - 2026-11-25
+
+### Fixed
+- The container image builds again: base image pinned by digest (`python:3.12.16-alpine3.24`) and Python packages pinned exactly (PyMuPDF 1.28.2, the newest with a musllinux wheel; unpinned, pip picked PyMuPDF 2.1 and tried to compile it). The `v5.0.0` tag never produced an image; use 5.0.1.
+
 ## 5.0.0 - 2026-11-25
 
 ### ⚠️ Upgrade note: background scanning is off by default

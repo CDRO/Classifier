@@ -1,4 +1,7 @@
-FROM python:3.12-alpine
+# Pinned: base image by digest, Python packages exactly. An unpinned `pip install` pulled
+# PyMuPDF 2.1, which has no musllinux wheel, and the build failed trying to compile it.
+# 1.28.2 is the newest PyMuPDF with a musllinux x86_64 wheel. Bump deliberately.
+FROM python:3.12.16-alpine3.24@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89
 
 WORKDIR /app
 
@@ -6,7 +9,7 @@ RUN apk add --no-cache libstdc++ \
 	tesseract-ocr \
 	tesseract-ocr-data-eng \
 	tesseract-ocr-data-deu \
-	&& pip install --no-cache-dir fastapi uvicorn pymupdf httpx
+	&& pip install --no-cache-dir --only-binary=:all: fastapi==0.165.0 uvicorn==0.54.0 pymupdf==1.28.2 httpx==0.28.1
 RUN mkdir -p /data/source /data/destination /data/archive /data/config
 
 COPY frontend/ ./frontend/
