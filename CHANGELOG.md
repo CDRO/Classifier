@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 5.0.0 - 2026-11-25
+
 ### ⚠️ Upgrade note: background scanning is off by default
 - **`BACKGROUND_SCAN_SECONDS` defaults to `0`**: the classifier no longer scans its inbox every 30 seconds. New PDFs are picked up at startup and when `POST /api/classification/prewarm` is called (e.g. by n8n after it drops a file). To keep the old behavior, set `BACKGROUND_SCAN_SECONDS=30`. See README "Upgrading".
 
@@ -11,6 +13,7 @@ All notable changes to this project are documented here.
 - On-demand mode for hosts that let the classifier sleep when idle (#53): with `BACKGROUND_SCAN_SECONDS=0` (now the default), one prewarm pass runs at startup and after that only on request (`POST /api/classification/prewarm`).
 - `GET /api/activity` reports busy and idle state and the next private deletion, so a host can stop the app safely and wake it in time. Polling it does not count as activity.
 - A "Waking up the classifier…" notice while a request takes longer than 1.5 s.
+- Container images are published to `ghcr.io/cdro/classifier` on every `v*` tag (`.github/workflows/release.yml`).
 
 ## 4.0.0 - 2026-09-04
 

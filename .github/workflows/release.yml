@@ -1,0 +1,60 @@
+# Release: push a tag like v5.0.0 (VERSION, pyproject.toml and CHANGELOG.md say the same). Builds the image and publishes it to
+# ghcr.io/<owner>/<repo> as :<tag> and :sha-<commit>, with provenance and an SBOM. Prints the
+# pinned line for the config repo (WitchCraftVault003-config, compose/<app>/compose.yaml).
+# This repo never deploys: the host's applier does, from the reviewed config repo.
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803   # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Build and push
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ $TAG =~ ^v[0-9][0-9A-Za-z.+-]*$ ]] || { echo "::error::unexpected tag $TAG"; exit 1; }
+          [[ ${TAG#v} == "$(tr -d '[:space:]' < VERSION)" ]] || { echo "::error::tag $TAG does not match VERSION $(cat VERSION)"; exit 1; }
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          # A docker-container builder supports provenance and SBOM attestations.
+          docker buildx create --name release --driver docker-container --use >/dev/null
+          docker buildx build . --push \
+            --build-arg APP_VERSION="${TAG#v}" --build-arg APP_REVISION="$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.version=$TAG" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --provenance=mode=max --sbom=true \
+            --metadata-file meta.json \
+            -t "$image:$TAG" -t "$image:sha-${GITHUB_SHA::12}"
+          digest=$(jq -r '."containerimage.digest"' meta.json)
+          [[ $digest == sha256:* ]] || { echo "::error::no digest in build metadata"; exit 1; }
+          {
+            echo "## Published"
+            echo
+            echo "\`$image:$TAG\`"
+            echo
+            echo "For the config repo, \`compose/<app>/compose.yaml\`:"
+            echo '```yaml'
+            echo "    image: $image@$digest   # $TAG"
+            echo '```'
+            echo "Private package? Run \`sudo scripts/setup-registry.sh <github-user>\` on the host once,"
+            echo "or make the package public (Package settings -> Change visibility)."
+          } >> "$GITHUB_STEP_SUMMARY"
