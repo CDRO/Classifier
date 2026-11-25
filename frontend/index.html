@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="styles.css?v=__APP_VERSION__">
 </head>
 <body>
+  <div id="wake-notice" class="wake-notice" role="status" aria-live="polite" hidden>Waking up the classifier… this takes a few seconds.</div>
   <main class="shell">
     <header class="topbar">
       <div>
@@ -230,6 +231,7 @@
 
     <footer><span>Classifier <strong id="app-version">version unavailable</strong></span><span id="app-revision">revision unavailable</span></footer>
   </main>
+  <script src="wake-notice.js?v=__APP_VERSION__"></script>
   <script src="app.js?v=__APP_VERSION__"></script>
 </body>
 </html>
